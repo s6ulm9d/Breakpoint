@@ -1,0 +1,35 @@
+# === FINAL NEW ADDS ===
+- id: check_security_headers
+  type: header_security
+  target: /
+  method: GET
+
+- id: check_crlf
+  type: crlf_injection
+  target: /redirect
+  method: GET
+  config: {fields: [url]}
+
+- id: check_xxe_exfil
+  type: xxe_exfil
+  target: /api/parse_xml
+  method: POST
+
+- id: check_brute_force
+  type: brute_force
+  target: /login
+  method: POST
+  config: {user: "admin", count: 25}
+
+# ... (Include all previous scenarios) ...
+
+- id: node_proto_pollution
+  type: prototype_pollution
+  target: /login
+  method: POST
+
+- id: webhook_ssrf
+  type: ssrf
+  target: /api/fetch_url
+  method: POST
+  config: {fields: [url]}
