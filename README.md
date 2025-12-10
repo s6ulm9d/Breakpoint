@@ -48,16 +48,18 @@ It includes **Force-Multipliers** like Forensic Logging and Financial Liability 
 
 ## 🚀 Installation
 
+### 1. Global Command (Recommended)
+Install the tool to use the `breakpoint` command anywhere:
 ```bash
-# Clone Repository
 git clone https://github.com/soulmad/breakpoint.git
 cd breakpoint
-
-# Install Dependencies
-pip install -r requirements.txt
+pip install -e .
 ```
 
-*(Note: Requires Python 3.8+)*
+### 2. Dependencies Only
+```bash
+pip install -r requirements.txt
+```
 
 ---
 
@@ -73,7 +75,7 @@ python -m breakpoint \
 ```
 
 ### 2. Aggressive Mode
-Enable destructive tests and high concurrency (DoS, Heavy Fuzzing):
+Enable **DESTRUCTIVE** tests (RCE File Writes, Server Crash Payloads) and high concurrency:
 ```bash
 python -m breakpoint \
   --base-url http://localhost:3000 \
@@ -92,6 +94,18 @@ python -m breakpoint \
   --sarif-report security.sarif \
   --force-live-fire
 ```
+
+### 4. Continuous Attack Loop (Persistence)
+Run the attack suite in an infinite loop to stress test resilience over time:
+```bash
+python -m breakpoint \
+  --base-url http://localhost:3000 \
+  --scenarios examples/elite_scenarios.yaml \
+  --continuous \
+  --interval 10 \
+  --aggressive
+```
+*(This will run indefinitely, waiting 10 seconds between each full attack cycle.)*
 
 ---
 

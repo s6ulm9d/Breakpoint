@@ -1,0 +1,78 @@
+import json
+from .metadata import get_metadata, SEVERITY_SCORES
+
+class SarifReporter:
+    def __init__(self, filename="report.sarif"):
+        self.filename = filename
+
+    def generate(self, results):
+        rules = []
+        rule_indices = {}
+        
+        sarif_results = []
+        
+        for res in results:
+            passed = res.status in ["SECURE", "PASSED"] if hasattr(res, 'status') else res.get("passed", True)
+            if passed:
+                continue
+                
+            atype = res.type if hasattr(res, 'type') else res.get("attack_type", "generic")
+            details_text = res.details if hasattr(res, 'details') else res.get("details", "")
+            severity = res.severity if hasattr(res, 'severity') else "HIGH"
+
+            try:
+                meta = get_metadata(atype)
+            except:
+                meta = {"name": atype, "severity": severity, "description": "Unknown", "risk_factors": []}
+            
+            # 1. Register Rule if not present
+            if atype not in rule_indices:
+                rule = {
+                    "id": atype,
+                    "name": meta.get("name", atype),
+                    "shortDescription": {"text": meta.get("name", atype)},
+                    "fullDescription": {"text": meta.get("description", "")},
+                    "properties": {
+                        "security-severity": str(SEVERITY_SCORES.get(meta.get("severity", "HIGH"), 5.0)),
+                        "tags": list(meta.get("risk_factors", [])) + ["security", meta.get("cwe", "Unknown")]
+                    }
+                }
+                rules.append(rule)
+                rule_indices[atype] = len(rules) - 1
+            
+            # 2. Add Result
+            # Finding locations is hard without line numbers, so we point to the artifact (web target)
+            msg = f"Attack {atype} failed. {str(details_text)[:200]}..."
+            
+            actual_severity = meta.get("severity", severity)
+            sarif_results.append({
+                "ruleId": atype,
+                "ruleIndex": rule_indices[atype],
+                "level": "error" if actual_severity in ["CRITICAL", "HIGH"] else "warning",
+                "message": {"text": msg},
+                "locations": [{
+                    "physicalLocation": {
+                        "artifactLocation": {"uri": "target_application"},
+                        "region": {"startLine": 1}
+                    }
+                }]
+            })
+
+        output = {
+            "version": "2.1.0",
+            "$schema": "https://json.schemastore.org/sarif-2.1.0-rtm.5.json",
+            "runs": [{
+                "tool": {
+                    "driver": {
+                        "name": "BREAKPOINT",
+                        "version": "2.0.0-ELITE",
+                        "rules": rules
+                    }
+                },
+                "results": sarif_results
+            }]
+        }
+        
+        with open(self.filename, "w", encoding="utf-8") as f:
+            json.dump(output, f, indent=2)
+        print(f"SARIF Report generated: {self.filename}")

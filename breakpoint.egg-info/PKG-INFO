@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: breakpoint
+Version: 2.0.0
+Summary: BREAKPOINT: Weaponized Resilience Engine
+Author: soulmad
+Requires-Python: >=3.8
+Requires-Dist: requests
+Requires-Dist: pyyaml
+Requires-Dist: colorama
+Dynamic: author
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
