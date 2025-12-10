@@ -1,5 +1,5 @@
 """
-I Broke Production — Now Prove It
+BREAKPOINT — Now Prove It
 Elite Chaos & Security Simulation Engine
 """
 

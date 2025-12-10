@@ -1,3 +1,10 @@
+  ____  _____  ______          _   _  __ _____   ____  _____ _   _ _______ 
+ |  _ \|  __ \|  ____|   /\   | |/ /|  __ \ / __ \|_   _| \ | |__   __|
+ | |_) | |__) | |__     /  \  | ' / | |__) | |  | | | | |  \| |  | |   
+ |  _ <|  _  /|  __|   / /\ \ |  <  |  ___/| |  | | | | | . ` |  | |   
+ | |_) | | \ \| |____ / ____ \| . \ | |    | |__| |_| |_| |\  |  | |   
+ |____/|_|  \_\______/_/    \_\_|\_\|_|     \____/|_____|_| \_|  |_|   
+
 # 💀 BREAKPOINT (Elite Edition)
 
 **Version:** 2.0.0-ELITE  
@@ -43,8 +50,8 @@ It includes **Force-Multipliers** like Forensic Logging and Financial Liability 
 
 ```bash
 # Clone Repository
-git clone https://github.com/soulmad/broke_prod_engine.git
-cd broke_prod_engine
+git clone https://github.com/soulmad/breakpoint.git
+cd breakpoint
 
 # Install Dependencies
 pip install -r requirements.txt
@@ -65,34 +72,39 @@ python -m breakpoint \
   --html-report audit.html
 ```
 
-### 2. Live-Fire (Unattended)
-Bypass interactive safety prompts (Only for CI/CD):
+### 2. Aggressive Mode
+Enable destructive tests and high concurrency (DoS, Heavy Fuzzing):
+```bash
+python -m breakpoint \
+  --base-url http://localhost:3000 \
+  --scenarios examples/elite_scenarios.yaml \
+  --aggressive \
+  --verbose
+```
+
+### 3. CI/CD Integration (Unattended)
+Bypass interactive safety prompts for automated pipelines:
 ```bash
 python -m breakpoint \
   --base-url https://staging-api.com \
   --scenarios examples/elite_scenarios.yaml \
-  --html-report stage_audit.html \
+  --json-report results.json \
+  --sarif-report security.sarif \
   --force-live-fire
-```
-
-### 3. CI/CD Gating
-Fail the build if HIGH or CRITICAL issues are found:
-```bash
-python -m breakpoint ... --fail-on HIGH
 ```
 
 ---
 
 ## 🧱 Architecture
 The engine is built on a modular, plugin-based architecture:
-- **`broke_prod/engine.py`**: The core orchestrator.
-- **`broke_prod/attacks/`**: Individual attack plugins (e.g., `sqli.py`, `dos_extreme.py`).
-- **`broke_prod/scenarios.py`**: YAML parser for defining attack flows.
-- **`broke_prod/forensics.py`**: Cryptographic logger.
+- **`breakpoint/engine.py`**: The core orchestrator.
+- **`breakpoint/attacks/`**: Individual attack plugins (e.g., `sqli.py`, `dos_extreme.py`).
+- **`breakpoint/scenarios.py`**: YAML parser for defining attack flows.
+- **`breakpoint/forensics.py`**: Cryptographic logger.
 
 ---
 
 ## ⚖️ Legal Disclaimer
-The authors of Broke Prod Engine are not responsible for any damage, data loss, or legal consequences caused by the use of this tool. By using this software, you agree to assume all liability and to adhere to all applicable local, state, and federal laws regarding unauthorized access to computer systems.
+The authors of BREAKPOINT are not responsible for any damage, data loss, or legal consequences caused by the use of this tool. By using this software, you agree to assume all liability and to adhere to all applicable local, state, and federal laws regarding unauthorized access to computer systems.
 
 **OWN YOUR TARGETS.**

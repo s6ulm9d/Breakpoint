@@ -25,6 +25,8 @@ def run_ssrf_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
             
             resp = client.send(scenario.method, scenario.target, json_body=body)
             
+            if resp.status_code == 0: continue
+
             suspicious = False
             reasons = []
             

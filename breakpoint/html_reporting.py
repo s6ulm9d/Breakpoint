@@ -14,7 +14,7 @@ class HtmlReporter:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         total = len(results)
-        passed = sum(1 for r in results if r.get("passed"))
+        passed = sum(1 for r in results if (r.status in ["SECURE", "PASSED"] if hasattr(r, 'status') else r.get("passed")))
         failed = total - passed
         resilience_score = (passed / total * 100) if total > 0 else 0
 
@@ -107,38 +107,76 @@ class HtmlReporter:
     """
     
         for r in results:
-            if not r.get("passed"):
-                atype = r.get("attack_type", "unknown")
-                meta = get_metadata(atype)
-                details = r.get("details", {})
+            # Determine success (passed if SECURE or PASSED)
+            passed = r.status in ["SECURE", "PASSED"] if hasattr(r, 'status') else r.get("passed")
+            
+            if not passed:
+                atype = r.type if hasattr(r, 'type') else r.get("attack_type", "unknown")
+                # Use severity from result if available, otherwise fetch from metadata
+                sev = r.severity if hasattr(r, 'severity') and r.severity else "HIGH" # Default high if missing
                 
-                if isinstance(details, dict):
-                    leaked = details.get("leaked_data", [])
-                    issues = details.get("issues", [])
+                details_text = r.details if hasattr(r, 'details') else r.get("details", "")
+                scenario_id = r.id if hasattr(r, 'id') else r.get("scenario_id", "unknown")
+
+                # Try to get metadata using the type, but fallback gracefully
+                try:
+                    meta = get_metadata(atype)
+                except:
+                    meta = {"name": atype, "severity": sev, "description": f"Vulnerability detected in {atype}"}
+                
+                # Check specifics of 'details'
+                leaked = []
+                issues = []
+                
+                raw_details = r.details if hasattr(r, 'details') else r.get("details", "")
+                
+                # Attempt to parse dictionary from CheckResult
+                import ast
+                
+                final_details = raw_details
+                
+                if isinstance(raw_details, dict):
+                    final_details = raw_details
+                elif isinstance(raw_details, str):
+                    if raw_details.startswith("{") and "issues" in raw_details:
+                        try:
+                             # Safe eval for python dict string
+                             final_details = ast.literal_eval(raw_details)
+                        except:
+                             pass
+                
+                if isinstance(final_details, dict):
+                    issues = final_details.get("issues", [])
+                    if isinstance(issues, str): issues = [issues]
+                    
+                    leaked = final_details.get("leaked_data", []) # List of strings
+                    
+                    # If we have neither, maybe it's just a dict of info
+                    if not issues and not leaked:
+                        issues = [str(final_details)]
                 else:
-                    leaked = []
-                    issues = [str(details)]
+                    issues = [str(final_details)]
                 
                 html += f"""
         <div class="finding">
             <div class="finding-head">
-                <span class="badge bg-{meta['severity']}">{meta['severity']}</span>
-                <strong>{meta['name']}</strong>
-                <span style="margin-left: auto; opacity: 0.6; font-size: 0.8rem;">{r['scenario_id']}</span>
+                <span class="badge bg-{sev}">{sev}</span>
+                <strong>{meta.get('name', atype)}</strong>
+                <span style="margin-left: auto; opacity: 0.6; font-size: 0.8rem;">{scenario_id}</span>
             </div>
             <div class="finding-body">
-                <p style="margin-top: 0;">{meta['description']}</p>
+                <p style="margin-top: 0;">{meta.get('description', '')}</p>
                 
                 <!-- LEAKED DATA (FORENSIC PROOF) -->
                 { f'''
                 <div class="leak-box">
-                    <div class="leak-head">⚠️ EXFILTRATED EVIDENCE</div>
+                    <div class="leak-head">⚠️ EXFILTRATED EVIDENCE / LEAKED DATA</div>
                     <pre>{'\\n'.join(str(l) for l in leaked)}</pre>
                 </div>
                 ''' if leaked else '' }
                 
                 <details open>
-                    <summary>Technical Details</summary>
+                    <summary>Technical Details & Issues</summary>
                     <ul style="margin-bottom: 0;">{''.join(f'<li>{i}</li>' for i in issues)}</ul>
                 </details>
             </div>

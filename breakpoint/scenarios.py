@@ -21,12 +21,9 @@ class FlowScenario(ScenarioBase):
     steps: List[Dict[str, Any]] = field(default_factory=list)
 
 def load_scenarios(path: str) -> List[ScenarioBase]:
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or []
-    except Exception as e:
-        print(f"Error loading scenarios file {path}: {e}")
-        return []
+    # Let exceptions propagate to caller (CLI) for proper handling
+    with open(path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or []
 
     scenarios: List[ScenarioBase] = []
     

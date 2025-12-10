@@ -12,21 +12,28 @@ class SarifReporter:
         sarif_results = []
         
         for res in results:
-            if res.get("passed", True):
+            passed = res.status in ["SECURE", "PASSED"] if hasattr(res, 'status') else res.get("passed", True)
+            if passed:
                 continue
                 
-            atype = res.get("attack_type", "generic")
-            meta = get_metadata(atype)
+            atype = res.type if hasattr(res, 'type') else res.get("attack_type", "generic")
+            details_text = res.details if hasattr(res, 'details') else res.get("details", "")
+            severity = res.severity if hasattr(res, 'severity') else "HIGH"
+
+            try:
+                meta = get_metadata(atype)
+            except:
+                meta = {"name": atype, "severity": severity, "description": "Unknown", "risk_factors": []}
             
             # 1. Register Rule if not present
             if atype not in rule_indices:
                 rule = {
                     "id": atype,
-                    "name": meta["name"],
-                    "shortDescription": {"text": meta["name"]},
-                    "fullDescription": {"text": meta["description"]},
+                    "name": meta.get("name", atype),
+                    "shortDescription": {"text": meta.get("name", atype)},
+                    "fullDescription": {"text": meta.get("description", "")},
                     "properties": {
-                        "security-severity": str(SEVERITY_SCORES.get(meta["severity"], 5.0)),
+                        "security-severity": str(SEVERITY_SCORES.get(meta.get("severity", "HIGH"), 5.0)),
                         "tags": list(meta.get("risk_factors", [])) + ["security", meta.get("cwe", "Unknown")]
                     }
                 }
@@ -35,13 +42,13 @@ class SarifReporter:
             
             # 2. Add Result
             # Finding locations is hard without line numbers, so we point to the artifact (web target)
-            details = res.get("details", {})
-            msg = f"Attack {atype} failed. {str(details)[:200]}..."
+            msg = f"Attack {atype} failed. {str(details_text)[:200]}..."
             
+            actual_severity = meta.get("severity", severity)
             sarif_results.append({
                 "ruleId": atype,
                 "ruleIndex": rule_indices[atype],
-                "level": "error" if meta["severity"] in ["CRITICAL", "HIGH"] else "warning",
+                "level": "error" if actual_severity in ["CRITICAL", "HIGH"] else "warning",
                 "message": {"text": msg},
                 "locations": [{
                     "physicalLocation": {

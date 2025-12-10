@@ -12,6 +12,14 @@ def run_header_security_check(client: HttpClient, scenario: SimpleScenario) -> D
     
     issues = []
     
+    if resp.status_code == 0:
+        return {
+            "scenario_id": scenario.id,
+            "attack_type": "header_security",
+            "passed": False,
+            "details": {"error": f"Connection Error: {resp.text}"}
+        }
+    
     # 1. Clickjacking (X-Frame-Options / CSP)
     if "x-frame-options" not in headers and "content-security-policy" not in headers:
         issues.append("Missing Clickjacking Protection (X-Frame-Options / CSP)")

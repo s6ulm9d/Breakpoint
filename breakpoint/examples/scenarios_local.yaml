@@ -1,0 +1,62 @@
+- id: check_security_headers
+  type: header_security
+  target: /
+  method: GET
+
+- id: check_bruteforce_login
+  type: brute_force
+  target: /login
+  method: POST
+  config:
+    user: "test"
+    attempts: 100
+
+- id: check_reflection_search
+  type: reflection
+  target: /search
+  method: GET
+  config:
+    param: "q"
+
+- id: check_performance_home
+  type: performance
+  target: /
+  method: GET
+  config:
+    baseline_requests: 20
+    load_requests: 500
+
+- id: check_react2shell_rce
+  type: react2shell
+  target: /api/tracker
+  method: POST
+
+- id: check_sqli_products
+  type: sql_injection
+  target: /api/products
+  method: GET
+  config:
+    param: "category"
+
+- id: check_xss_search
+  type: xss
+  target: /search
+  method: GET
+  config:
+    param: "q"
+
+- id: check_ssrf_fetch
+  type: ssrf
+  target: /api/fetch_url
+  method: POST
+  config:
+    param: "url"
+
+- id: stress_test_slowloris
+  type: dos_slowloris
+  target: /
+  method: GET
+  config:
+    aggressive: true
+    sockets: 2000
+    duration: 5

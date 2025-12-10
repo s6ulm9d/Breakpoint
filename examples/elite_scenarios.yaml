@@ -1,35 +1,77 @@
-# === FINAL NEW ADDS ===
-- id: check_security_headers
+# ==========================================
+# BREAKPOINT ELITE SCENARIOS (WEAPONIZED)
+# ==========================================
+# Target: Any Web Application
+# Warning: These attacks are DESTRUCTIVE.
+# ==========================================
+
+# 1. Reconnaissance & Misconfigurations
+- id: security_headers
   type: header_security
   target: /
   method: GET
 
-- id: check_crlf
-  type: crlf_injection
+- id: open_redirect_check
+  type: open_redirect
   target: /redirect
   method: GET
-  config: {fields: [url]}
+  config: {fields: [url, next, returnTo]}
 
-- id: check_xxe_exfil
+# 2. Injection Attacks (High Severity)
+- id: aggressive_sqli_login
+  type: sql_injection
+  target: /login
+  method: POST
+  config: 
+    fields: [username, password]
+    aggressive: true
+
+- id: reflected_xss_search
+  type: xss
+  target: /search
+  method: GET
+  config: {fields: [q, query, search]}
+
+- id: crlf_injection_headers
+  type: crlf_injection
+  target: /
+  method: GET
+  config: {fields: [lang, url]}
+
+# 3. Server-Side Attacks (RCE / SSRF / XXE)
+- id: shell_shock_rce
+  type: rce
+  target: /cgi-bin/test
+  method: GET
+  config: {fields: [User-Agent]}
+
+- id: rce_params
+  type: rce
+  target: /api/ping
+  method: POST
+  config: {fields: [ip, host]}
+
+- id: ssrf_webhook
+  type: ssrf
+  target: /api/webhook
+  method: POST
+  config: {fields: [url, callback]}
+
+- id: xxe_exfiltration
   type: xxe_exfil
   target: /api/parse_xml
   method: POST
 
-- id: check_brute_force
-  type: brute_force
-  target: /login
-  method: POST
-  config: {user: "admin", count: 25}
-
-# ... (Include all previous scenarios) ...
-
-- id: node_proto_pollution
+- id: prototype_pollution_login
   type: prototype_pollution
   target: /login
   method: POST
 
-- id: webhook_ssrf
-  type: ssrf
-  target: /api/fetch_url
-  method: POST
-  config: {fields: [url]}
+# 4. Denial of Service (Extreme)
+- id: slowloris_dos
+  type: slowloris
+  target: /
+  method: GET
+  config: 
+    sockets: 500
+    duration: 15

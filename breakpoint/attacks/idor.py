@@ -49,7 +49,7 @@ def run_idor_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
     successful_accesses = [r for r in results if r["status"] == 200]
     
     # Heuristic: If we accessed more than 1 distinct object, report IDOR risk.
-    # (In real prod, public endpoints exist, but for 'Broken Prod' typically we target private stuff)
+    # (In real prod, public endpoints exist, but for 'BREAKPOINT' typically we target private stuff)
     
     risk = len(successful_accesses) > 1
     

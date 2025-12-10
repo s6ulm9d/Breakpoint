@@ -1,4 +1,4 @@
-"""Tiny Flask app to test the 'I Broke Production' MVP engine against.
+"""Tiny Flask app to test the 'BREAKPOINT' MVP engine against.
 
 This app is intentionally naive and *not* production ready. It is only for
 local experimentation with the engine.
