@@ -16,9 +16,9 @@ def build():
         "breakpoint.attacks.cve_classics",
         "breakpoint.attacks.brute",
         "breakpoint.attacks.crlf",
-        "breakpoint.reporting.html_reporting",
-        "breakpoint.reporting.sarif_reporting",
-        "breakpoint.reporting.console_reporting"
+        "breakpoint.html_reporting",
+        "breakpoint.sarif_reporting",
+        "breakpoint.reporting"
     ]
     
     args = [
