@@ -1,12 +1,12 @@
-from .html_reporting import HtmlReporter
-from .sarif_reporting import SarifReporter
-from .engine import Engine
-from .scenarios import load_scenarios
-from .reporting import ConsoleReporter, generate_json_report
-from .metadata import get_metadata
-from .safety_lock import SafetyLock
-from .forensics import ForensicLogger
-from .economics import FailureEconomics
+from breakpoint.html_reporting import HtmlReporter
+from breakpoint.sarif_reporting import SarifReporter
+from breakpoint.engine import Engine
+from breakpoint.scenarios import load_scenarios
+from breakpoint.reporting import ConsoleReporter, generate_json_report
+from breakpoint.metadata import get_metadata
+from breakpoint.safety_lock import SafetyLock
+from breakpoint.forensics import ForensicLogger
+from breakpoint.economics import FailureEconomics
 import argparse
 import sys
 import os
