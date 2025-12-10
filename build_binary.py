@@ -1,50 +1,42 @@
 import PyInstaller.__main__
 import os
-import shutil
 import sys
 
 def build():
-    print("[-] Initializing BREAKPOINT Binary Build...")
+    # 1. Create temporary entry point in ROOT
+    # This ensures 'breakpoint' is treated as a package, resolving all import issues.
+    with open("run_breakpoint.py", "w") as f:
+        f.write("from breakpoint.cli import main\n")
+        f.write("if __name__ == '__main__':\n")
+        f.write("    main()\n")
+        
+    print("[-] Created temporary entry point: run_breakpoint.py")
     
-    # Define hidden imports for dynamic loading in engine.py
-    hidden_imports = [
-        "breakpoint.attacks.xxe",
-        "breakpoint.attacks.sqli",
-        "breakpoint.attacks.rce",
-        "breakpoint.attacks.web_exploits",
-        "breakpoint.attacks.dos_extreme",
-        "breakpoint.attacks.cve_classics",
-        "breakpoint.attacks.brute",
-        "breakpoint.attacks.crlf",
-        "breakpoint.html_reporting",
-        "breakpoint.sarif_reporting",
-        "breakpoint.reporting"
-    ]
-    
+    # 2. Build
     args = [
-        "breakpoint/cli.py",       # Entry Point
-        "--paths=.",               # Ensure root is in path to find 'breakpoint' package
-        "--onefile",               # Single Executable
-        "--name=breakpoint",       # Output Name
-        "--clean",                 # Clean Cache
-        "--noconfirm",             # Overwrite existing
-        "--console",               # Console App (No GUI)
-        # "--log-level=WARN",      # Reduce noise
+        "run_breakpoint.py",       # USE ROOT ENTRY POINT
+        "--onefile",
+        "--name=breakpoint",
+        "--clean",
+        "--noconfirm",
+        "--console",
+        # Use simple hidden imports for known dynamic loaders, but root entry usually fixes most
+        "--hidden-import=breakpoint.attacks",
+        "--collect-all=breakpoint", # Force collect everything in package
     ]
     
-    # Append hidden imports
-    for hidden in hidden_imports:
-        args.append(f"--hidden-import={hidden}")
-
-    print(f"[-] Running PyInstaller with: {' '.join(args)}")
-    
+    print(f"[-] Running PyInstaller...")
     try:
         PyInstaller.__main__.run(args)
         print("\n[+] Build Success!")
         print(f"[+] Binary located at: {os.path.abspath('dist')}")
     except Exception as e:
-        print(f"\n[!] Build Failed: {e}")
+        print(f"[!] Build Failed: {e}")
         sys.exit(1)
+    finally:
+        # Cleanup
+        if os.path.exists("run_breakpoint.py"):
+            os.remove("run_breakpoint.py")
 
 if __name__ == "__main__":
     build()
