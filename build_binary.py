@@ -23,6 +23,7 @@ def build():
     
     args = [
         "breakpoint/cli.py",       # Entry Point
+        "--paths=.",               # Ensure root is in path to find 'breakpoint' package
         "--onefile",               # Single Executable
         "--name=breakpoint",       # Output Name
         "--clean",                 # Clean Cache
