@@ -13,6 +13,7 @@ def build():
     print("[-] Created temporary entry point: run_breakpoint.py")
     
     # 2. Build
+    sep = os.pathsep
     args = [
         "run_breakpoint.py",       # USE ROOT ENTRY POINT
         "--onefile",
@@ -20,6 +21,8 @@ def build():
         "--clean",
         "--noconfirm",
         "--console",
+        # Explicitly bundle the default scenarios file into 'breakpoint' folder in bundle
+        f"--add-data=breakpoint/default_scenarios.yaml{sep}breakpoint",
         # Use simple hidden imports for known dynamic loaders, but root entry usually fixes most
         "--hidden-import=breakpoint.attacks",
         "--collect-all=breakpoint", # Force collect everything in package

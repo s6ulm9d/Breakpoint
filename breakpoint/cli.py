@@ -17,6 +17,17 @@ def signal_handler(sig, frame):
     sys.stdout.flush()
     os._exit(0)
 
+def get_default_scenarios_path():
+    """Resolves path to embedded default_scenarios.yaml"""
+    if getattr(sys, 'frozen', False):
+        # PyInstaller Mode
+        base_path = sys._MEIPASS
+        # Bundled into 'breakpoint' folder
+        return os.path.join(base_path, 'breakpoint', 'default_scenarios.yaml')
+    else:
+        # Source Mode
+        return os.path.join(os.path.dirname(__file__), 'default_scenarios.yaml')
+
 def main():
     signal.signal(signal.SIGINT, signal_handler)
     
@@ -32,7 +43,7 @@ def main():
     # Target Group
     target_group = parser.add_argument_group("Targeting")
     target_group.add_argument("--base-url", required=True, help="Target URL (e.g., http://localhost:3000)")
-    target_group.add_argument("--scenarios", required=True, help="Path to YAML scenarios file")
+    target_group.add_argument("--scenarios", help="Path to YAML scenarios file (Default: Embedded elite scenarios)")
     target_group.add_argument("--force-live-fire", action="store_true", help="Bypass safety checks for automation")
     
     # Output Group
@@ -59,7 +70,7 @@ def main():
     init(autoreset=True)
     
     BANNER = r"""
-  ____  _____  ______          _   _  __ _____   ____  _____ _   _ _______ 
+  ____  _____  ______          _   _ _____   ____ _____ _   _ _______ 
  |  _ \|  __ \|  ____|   /\   | |/ /|  __ \ / __ \|_   _| \ | |__   __|
  | |_) | |__) | |__     /  \  | ' / | |__) | |  | | | | |  \| |  | |   
  |  _ <|  _  /|  __|   / /\ \ |  <  |  ___/| |  | | | | | . ` |  | |   
@@ -79,10 +90,15 @@ def main():
     logger = ForensicLogger()
     print(f"[*] Forensic Audit Log Initialized: {logger.log_file}")
     
+    scenarios_path = args.scenarios
+    if not scenarios_path:
+        scenarios_path = get_default_scenarios_path()
+        print(f"[*] No scenarios provided. Using built-in defaults: {scenarios_path}")
+
     try:
-        scenarios = load_scenarios(args.scenarios)
+        scenarios = load_scenarios(scenarios_path)
     except Exception as e:
-        print(f"\n[!!!] FATAL: Failed to load scenarios from '{args.scenarios}': {e}")
+        print(f"\n[!!!] FATAL: Failed to load scenarios from '{scenarios_path}': {e}")
         sys.exit(1)
 
     engine = Engine(base_url=args.base_url, forensic_log=logger, verbose=args.verbose)
