@@ -2,6 +2,12 @@
 
 All notable changes to the "BREAKPOINT" engine will be documented in this file.
 
+## [2.5.1-ELITE] - 2025-12-11
+### 🐛 Bug Fixes
+- **Critical Crash Fix**: Resolved "unhashable type: slice" error caused by attempting to slice dictionary details in console output.
+- **JWT**: Now uses a dummy token for simulation if no token is provided, preventing the test from being skipped.
+- **Function Names**: Fixed function name mismatches for Deserialization and IDOR checks.
+
 ## [2.5.0-ELITE] - 2025-12-11
 
 ### 🚀 Features

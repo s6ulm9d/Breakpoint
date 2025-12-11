@@ -74,7 +74,7 @@ class Engine:
                                 result = future.result(timeout=60)
                                 results.append(result)
                                 color = Fore.GREEN if result.status in ["PASSED", "SECURE"] else Fore.RED
-                                print(f"    -> {color}[{result.status}] {result.details[:50]}...{Style.RESET_ALL}")
+                                print(f"    -> {color}[{result.status}] {str(result.details)[:50]}...{Style.RESET_ALL}")
                                 
                             except concurrent.futures.TimeoutError:
                                 print(f"{Fore.RED}    -> [TIMEOUT] Scenario {scenario.id} exceeded 60s limit. KILLED.{Style.RESET_ALL}")
@@ -96,7 +96,7 @@ class Engine:
                  res = self._execute_scenario(s)
                  results.append(res)
                  color = Fore.GREEN if res.status in ["PASSED", "SECURE"] else Fore.RED
-                 print(f"    -> {color}[{res.status}] {res.details[:50]}...{Style.RESET_ALL}")
+                 print(f"    -> {color}[{res.status}] {str(res.details)[:50]}...{Style.RESET_ALL}")
                     
         return results
 

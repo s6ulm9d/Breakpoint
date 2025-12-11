@@ -30,11 +30,9 @@ def run_jwt_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
     """
     base_token = scenario.config.get("token")
     if not base_token or base_token.startswith("{{"):
-        return {
-            "scenario_id": scenario.id,
-            "passed": False, # Cannot test without token
-            "details": "Skipped: No valid base_token provided for JWT attack"
-        }
+        print("    [!] JWT: No token provided. Using dummy token to simulate attack logic.")
+        # Dummy JWT: {"alg": "HS256", "typ": "JWT"} . {"user": "test"} . signature
+        base_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjoidGVzdCJ9.SIGNATURE"
 
     header, payload = _decode_jwt(base_token)
     if not header:

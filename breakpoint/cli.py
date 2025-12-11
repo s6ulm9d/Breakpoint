@@ -86,7 +86,7 @@ def main():
                      result = subprocess.run(["git", "pull"], capture_output=True, text=True)
                      if result.returncode == 0:
                          if "Already up to date" in result.stdout:
-                             print(f"[+] You are already up to date (v2.5.0-ELITE).")
+                             print(f"[+] You are already up to date (v2.5.1-ELITE).")
                          else:
                              print(f"[+] Successfully updated to latest version.")
                              print(f"    {result.stdout.strip()}")
@@ -106,8 +106,8 @@ def main():
                     data = resp.json()
                     latest = data.get("tag_name", "Unknown")
                     print(f"[+] Latest Version: {latest}")
-                    print(f"[+] Current Version: 2.5.0-ELITE")
-                    if latest != "Unknown" and latest != "2.5.0-ELITE":
+                    print(f"[+] Current Version: 2.5.1-ELITE")
+                    if latest != "Unknown" and latest != "2.5.1-ELITE":
                          print(f"[!] Update Available! Download at: {data.get('html_url')}")
                     else:
                          print("[+] You are up to date.")
@@ -144,7 +144,7 @@ def main():
         formatter_class=argparse.RawTextHelpFormatter
     )
     
-    parser.add_argument("-v", "--version", action="version", version="BREAKPOINT v2.5.0-ELITE")
+    parser.add_argument("-v", "--version", action="version", version="BREAKPOINT v2.5.1-ELITE")
     parser.add_argument("--update", action="store_true", help="Update the tool in-place")
     
     target_group = parser.add_argument_group("Targeting")

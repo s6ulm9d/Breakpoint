@@ -2,7 +2,7 @@ from typing import Any, Dict
 from ..http_client import HttpClient
 from ..scenarios import SimpleScenario
 
-def run_idor_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+def run_idor_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """
     Insecure Direct Object Reference / Broken Object Level Authorization
     """
