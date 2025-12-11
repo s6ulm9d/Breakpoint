@@ -2,23 +2,23 @@
 
 All notable changes to the "BREAKPOINT" engine will be documented in this file.
 
-## [2.0.0-ELITE] - 2025-12-11
+## [2.3.0-ELITE] - 2025-12-11
 
 ### 🚀 Major Features
-- **Engine**: Rewrite of the core orchestrator for higher concurrency (20+ threads).
-- **Attacks**: Added "Death Suite" (SQLi, DoS, Log4Shell, JWT Forgery).
-- **Forensics**: Immutable audit logging system (`audit_UUID.log`).
-- **Safety**: Added `STOP.lock` kill switch and interactive consent.
-- **Reporting**: New HTML Executive Dashboard and SARIF output.
+- **Full Spectrum Weaponization**: Enabled 18+ attack modules covering the entire OWASP Top 10 (Recon, Auth, Injection, BAC, Components, Logic, DoS).
+- **Aggressive Mode**: New `--aggressive` flag unlocks destructive payloads:
+    - **SQLi**: `DROP`, `TRUNCATE`, `xp_cmdshell`.
+    - **RCE**: Fork bombs, File writes, Reverse Shells.
+    - **DoS**: Uncapped concurrency and memory exhaustion.
+- **Zero Config**: No initialization required. Just run `breakpoint <URL>`. Config and reports are auto-managed.
 
 ### 🛠️ Improvements
-- **CLI**: Added `init` and `update` commands.
-- **Installer**: Automated PowerShell installer (`install.ps1`) for Windows.
-- **Docs**: Comprehensive professional documentation suite.
+- **Installers**: Release includes `breakpoint-installer.exe` (Windows) and self-contained Linux/Mac binaries.
+- **Force Attack**: Aggressive mode now explicitly ignores 404/405 "Safe" checks to force attacks on hidden endpoints.
 
-### 🐛 Bug Fixes
-- Fixed race conditions in socket handling.
-- Resolved path issues for Windows binary builds.
+## [2.0.0-ELITE] - 2025-12-11
+- Initial Enterprise Release.
+- Forensics, Safety Locks, and HTML Reporting.
 
 ---
 *Based on Keep a Changelog.*
