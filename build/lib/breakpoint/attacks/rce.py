@@ -9,7 +9,7 @@ def run_rce_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
 
     if baseline.status_code in [404, 405]:
         if scenario.config.get("aggressive"):
-            print(f"    [!] Endpoint {scenario.target} returned {baseline.status_code}, but AGGRESSIVE mode is ON. Attacking anyway...")
+            print(f"    [AGGRESSIVE] FORCE-ATTACK: Ignoring status {baseline.status_code}. Injecting RCE payloads...")
         else:
             return {
                 "scenario_id": scenario.id,

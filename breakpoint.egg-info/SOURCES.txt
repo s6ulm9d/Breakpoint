@@ -11,6 +11,7 @@ breakpoint/flows.py
 breakpoint/forensics.py
 breakpoint/html_reporting.py
 breakpoint/http_client.py
+breakpoint/licensing.py
 breakpoint/metadata.py
 breakpoint/models.py
 breakpoint/safety.py

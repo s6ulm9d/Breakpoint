@@ -2,7 +2,7 @@ from typing import Any, Dict
 from ..http_client import HttpClient
 from ..scenarios import SimpleScenario
 
-def run_idor_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+def run_idor_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """
     Insecure Direct Object Reference / Broken Object Level Authorization
     """
@@ -25,27 +25,6 @@ def run_idor_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
     # 1. Access a "known good" ID (optional, if owned_id provided)
     # 2. Iterate others. If 200 OK and content differs -> Potential IDOR.
     
-    results = []
-    
-    for val in id_range:
-        # Simple substitution
-        actual_path = target_template.replace(f"{{{{{param}}}}}", str(val))
-        # If no template found, append (fallback)
-        if actual_path == target_template:
-            actual_path = f"{target_template.rstrip('/')}/{val}"
-            
-        resp = client.send(scenario.method, actual_path)
-        
-        results.append({
-            "id": val,
-            "status": resp.status_code,
-            "len": len(resp.text)
-        })
-        
-    # Analysis
-    # If we get 200 OKs for multiple distinct IDs, it's NOT secure by default (unless public data).
-    # Engine goal: "Prove It". If I got data for ID 101 and ID 100, and they differ, I have access.
-    
     successful_accesses = [r for r in results if r["status"] == 200]
     
     # Heuristic: If we accessed more than 1 distinct object, report IDOR risk.
@@ -54,9 +33,50 @@ def run_idor_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
     risk = len(successful_accesses) > 1
     
     details = []
+    leaked_data = [] # Capture what we saw
+    
     if risk:
         ids = [r['id'] for r in successful_accesses]
         details.append(f"Accessible IDs found: {ids}. Ensure these are not sensitive/private.")
+        
+        # Grab snippet from first couple of successes to prove data access
+        # We need to re-fetch or if we stored it? We only stored len.
+        # Let's just trust that re-fetching is fine or we should have stored it. 
+        # Modifying the loop above to store snippet would be better, but let's just 
+        # add a targeted fetch here or just instruct user. 
+        # actually, let's modify the loop above to store snippet!
+        # wait, I can't modify the loop above in this chunk easily without expanding scope.
+        # Let's just say "Data length: X" is the leak for now, OR better, let's just 
+        # assume we can't easily get the body retrospectively without storing it.
+        # Let's change the strategy: Update the loop to store 'snippet'.
+        pass 
+        
+    # Re-writing the previous loop block to store snippet
+    results = []
+    for val in id_range:
+        actual_path = target_template.replace(f"{{{{{param}}}}}", str(val))
+        if actual_path == target_template:
+            actual_path = f"{target_template.rstrip('/')}/{val}"
+            
+        resp = client.send(scenario.method, actual_path)
+        
+        snippet = resp.text[:100].replace("\n", " ")
+        results.append({
+            "id": val,
+            "status": resp.status_code,
+            "len": len(resp.text),
+            "snippet": snippet
+        })
+        
+    successful_accesses = [r for r in results if r["status"] == 200]
+    risk = len(successful_accesses) > 1
+    
+    if risk:
+        ids = [r['id'] for r in successful_accesses]
+        details.append(f"Accessible IDs found: {ids}. Ensure these are not sensitive/private.")
+        # Populate leaked data
+        for r in successful_accesses[:3]: # Limit to first 3
+             leaked_data.append(f"ID {r['id']} Data: {r['snippet']}...")
 
     return {
         "scenario_id": scenario.id,
@@ -64,6 +84,7 @@ def run_idor_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
         "passed": not risk,
         "details": {
             "issues": details,
+            "leaked_data": leaked_data,
             "probed_ids": [r['id'] for r in results]
         }
     }

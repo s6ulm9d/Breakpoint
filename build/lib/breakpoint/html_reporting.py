@@ -157,6 +157,15 @@ class HtmlReporter:
                 else:
                     issues = [str(final_details)]
                 
+                leaked_section = ""
+                if leaked:
+                    joined_leaked = "\\n".join(str(l) for l in leaked)
+                    leaked_section = f'''
+                    <div class="leak-box">
+                        <div class="leak-head">⚠️ EXFILTRATED EVIDENCE / LEAKED DATA</div>
+                        <pre>{joined_leaked}</pre>
+                    </div>'''
+
                 html += f"""
         <div class="finding">
             <div class="finding-head">
@@ -168,12 +177,7 @@ class HtmlReporter:
                 <p style="margin-top: 0;">{meta.get('description', '')}</p>
                 
                 <!-- LEAKED DATA (FORENSIC PROOF) -->
-                { f'''
-                <div class="leak-box">
-                    <div class="leak-head">⚠️ EXFILTRATED EVIDENCE / LEAKED DATA</div>
-                    <pre>{'\\n'.join(str(l) for l in leaked)}</pre>
-                </div>
-                ''' if leaked else '' }
+                {leaked_section}
                 
                 <details open>
                     <summary>Technical Details & Issues</summary>

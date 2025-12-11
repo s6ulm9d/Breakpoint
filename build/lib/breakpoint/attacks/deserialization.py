@@ -3,7 +3,7 @@ import base64
 from ..http_client import HttpClient
 from ..scenarios import SimpleScenario
 
-def run_insecure_deserialization(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+def run_deserialization_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """
     Java/Python/PHP Object Injection
     Payloads: rO0AB... (Java serialized Base64)

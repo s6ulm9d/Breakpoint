@@ -43,6 +43,7 @@ def run_jwt_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
         }
     
     issues = []
+    leaked_data = [] # Evidence
     
     # ATTACK 1: The "None" Algorithm
     # Header: { "alg": "none" }
@@ -78,6 +79,7 @@ def run_jwt_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
         evidence = []
         if "admin" in resp.text.lower():
             evidence.append("Page contains 'admin' (Privilege Escalation)")
+            leaked_data.append("Response content contains 'admin'.")
         else:
             evidence.append("Request accepted (Status 200)")
             
@@ -87,12 +89,15 @@ def run_jwt_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
             f"    Response: {resp.status_code}\n"
             f"    Evidence: {', '.join(evidence)}"
         )
+        leaked_data.append(f"Forged Token: {fake_token}")
+        leaked_data.append(f"Evidence: {', '.join(evidence)}")
         
     return {
         "scenario_id": scenario.id,
         "attack_type": "jwt_weakness",
         "passed": len(issues) == 0,
         "details": {
-            "issues": issues
+            "issues": issues,
+            "leaked_data": leaked_data
         }
     }

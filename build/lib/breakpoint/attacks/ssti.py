@@ -18,6 +18,7 @@ def run_ssti_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
     
     fields = scenario.config.get("fields", ["q", "name", "template"])
     issues = []
+    leaked_data = []
     
     for field in fields:
         for p in payloads:
@@ -32,11 +33,13 @@ def run_ssti_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
             if "49" in resp.text and "7*7" not in resp.text:
                 suspicious = True
                 reasons.append("Expression Evaluated (7*7 -> 49)")
+                leaked_data.append(f"Eval Result: ...{resp.text[:100]}...")
                 
             # Class/Config leak
             if "<class" in resp.text and "config" in p:
                 suspicious = True
                 reasons.append("Internal Config Object Leaked")
+                leaked_data.append(f"Config Dump: ...{resp.text[:150]}...")
                 
             if suspicious:
                 issues.append(f"[CRITICAL] SSTI in '{field}': {', '.join(reasons)}")
@@ -45,5 +48,5 @@ def run_ssti_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
         "scenario_id": scenario.id,
         "attack_type": "ssti",
         "passed": len(issues) == 0,
-        "details": {"issues": issues}
+        "details": {"issues": issues, "leaked_data": leaked_data}
     }

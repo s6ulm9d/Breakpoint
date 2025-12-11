@@ -35,7 +35,7 @@ def run_xxe_exfil(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any
     
     headers = {"Content-Type": "application/xml"}
     issues = []
-    exfiltrated_data = []
+    leaked_data = []
     
     for payload in payloads:
         # User requested "server must parse malicious xml" - so we send it
@@ -44,27 +44,27 @@ def run_xxe_exfil(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any
         # Linux Check
         if "root:x:0:0" in resp.text:
             issues.append("XXE Exfiltration Successful (/etc/passwd leaked)")
-            exfiltrated_data.append(resp.text[:200])
+            leaked_data.append(resp.text[:200])
             
         # Windows Check
         if "boot loader" in resp.text.lower() or "[extensions]" in resp.text.lower():
             issues.append("XXE Exfiltration Successful (Windows File leaked)")
-            exfiltrated_data.append(resp.text[:200])
+            leaked_data.append(resp.text[:200])
             
         # PHP Base64 Check (looking for start of encoded /etc/passwd)
         # "cm9vd" -> "root"
         if "cm9vd" in resp.text and len(resp.text) > 100:
              issues.append("XXE Exfiltration Successful (Base64 Encoded /etc/passwd leaked)")
-             exfiltrated_data.append(resp.text[:200])
+             leaked_data.append(resp.text[:200])
              
         # Expect RCE Check
         if "uid=" in resp.text and "gid=" in resp.text:
              issues.append("XXE to RCE Successful (Command Execution via Expect)")
-             exfiltrated_data.append(resp.text[:200])
+             leaked_data.append(resp.text[:200])
         
     return {
         "scenario_id": scenario.id,
         "attack_type": "xxe_exfil",
         "passed": len(issues) == 0,
-        "details": {"issues": issues}
+        "details": {"issues": issues, "leaked_data": leaked_data}
     }

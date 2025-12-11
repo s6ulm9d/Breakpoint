@@ -25,6 +25,7 @@ def run_crlf_injection(client: HttpClient, scenario: SimpleScenario) -> Dict[str
     
     fields = scenario.config.get("fields", ["url", "redirect", "lang"])
     issues = []
+    leaked_data = []
     
     for field in fields:
         for item in payloads:
@@ -46,6 +47,7 @@ def run_crlf_injection(client: HttpClient, scenario: SimpleScenario) -> Dict[str
                 # Note: requests might merge headers, so we check existence
                 if resp.headers.get("X-Injected") == "true":
                      issues.append(f"[CRITICAL] CRLF Header Injection Confirmed ({desc})")
+                     leaked_data.append(f"Header Found: X-Injected: {resp.headers.get('X-Injected')}")
                      
                 # Check for Cookie Injection
                 # We need to look at raw headers or specific cookie jar if requests parsed it
@@ -53,11 +55,13 @@ def run_crlf_injection(client: HttpClient, scenario: SimpleScenario) -> Dict[str
                 set_cookie = resp.headers.get("Set-Cookie", "")
                 if "HACKED_BY_BP" in set_cookie:
                      issues.append(f"[CRITICAL] CRLF Session Fixation Successful")
+                     leaked_data.append(f"Set-Cookie Header: ...{set_cookie[:50]}...")
                 
                 # Check for Defacement (Body content logic)
                 # If we split the response, the body should contain our HTML
                 if "HACKED" in resp.text and "<script>alert(1)</script>" in resp.text:
                      issues.append(f"[CRITICAL] HTTP Response Splitting (Defacement) Successful")
+                     leaked_data.append(f"Injected Body Snippet: ...{resp.text[:100]}...")
                      
             except Exception:
                 pass # Network error might mean crash too?
@@ -66,5 +70,5 @@ def run_crlf_injection(client: HttpClient, scenario: SimpleScenario) -> Dict[str
         "scenario_id": scenario.id,
         "attack_type": "crlf_injection",
         "passed": len(issues) == 0,
-        "details": {"issues": issues}
+        "details": {"issues": issues, "leaked_data": leaked_data}
     }

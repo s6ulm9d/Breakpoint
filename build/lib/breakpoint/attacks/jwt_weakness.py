@@ -30,11 +30,9 @@ def run_jwt_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
     """
     base_token = scenario.config.get("token")
     if not base_token or base_token.startswith("{{"):
-        return {
-            "scenario_id": scenario.id,
-            "passed": False, # Cannot test without token
-            "details": "Skipped: No valid base_token provided for JWT attack"
-        }
+        print("    [!] JWT: No token provided. Using dummy token to simulate attack logic.")
+        # Dummy JWT: {"alg": "HS256", "typ": "JWT"} . {"user": "test"} . signature
+        base_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjoidGVzdCJ9.SIGNATURE"
 
     header, payload = _decode_jwt(base_token)
     if not header:
@@ -45,6 +43,7 @@ def run_jwt_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
         }
     
     issues = []
+    leaked_data = [] # Evidence
     
     # ATTACK 1: The "None" Algorithm
     # Header: { "alg": "none" }
@@ -80,6 +79,7 @@ def run_jwt_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
         evidence = []
         if "admin" in resp.text.lower():
             evidence.append("Page contains 'admin' (Privilege Escalation)")
+            leaked_data.append("Response content contains 'admin'.")
         else:
             evidence.append("Request accepted (Status 200)")
             
@@ -89,12 +89,15 @@ def run_jwt_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
             f"    Response: {resp.status_code}\n"
             f"    Evidence: {', '.join(evidence)}"
         )
+        leaked_data.append(f"Forged Token: {fake_token}")
+        leaked_data.append(f"Evidence: {', '.join(evidence)}")
         
     return {
         "scenario_id": scenario.id,
         "attack_type": "jwt_weakness",
         "passed": len(issues) == 0,
         "details": {
-            "issues": issues
+            "issues": issues,
+            "leaked_data": leaked_data
         }
     }

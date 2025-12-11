@@ -1,19 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_all
-
-datas = [('breakpoint/default_scenarios.yaml', 'breakpoint')]
-binaries = []
-hiddenimports = ['breakpoint.attacks']
-tmp_ret = collect_all('breakpoint')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
-    ['run_breakpoint.py'],
+    ['breakpoint\\cli.py'],
     pathex=[],
-    binaries=binaries,
-    datas=datas,
-    hiddenimports=hiddenimports,
+    binaries=[],
+    datas=[('breakpoint/default_scenarios.yaml', 'breakpoint')],
+    hiddenimports=['breakpoint'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

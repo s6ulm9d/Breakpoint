@@ -6,7 +6,10 @@ def check(base_url, scenario, logger):
     
     try:
         resp = requests.get(url, timeout=5)
-        logger.log_request("GET", url, None, None, resp)
+        resp = requests.get(url, timeout=5)
+        # Verify logger capability before calling
+        if hasattr(logger, 'log_request'):
+             logger.log_request("GET", url, None, None, resp)
     except Exception as e:
         return CheckResult(scenario.id, scenario.type, "ERROR", None, str(e))
         

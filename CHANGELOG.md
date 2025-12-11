@@ -2,16 +2,16 @@
 
 All notable changes to the "BREAKPOINT" engine will be documented in this file.
 
-## [2.5.1-ELITE] - 2025-12-11
+## [2.5.2] - 2025-12-12
+### 🌟 New Features
+- **Proof of Exploitation**: All attack modules (SQLi, XSS, XXE, LFI, IDOR, etc.) now capture and report **actual leaked data** (e.g., config snippets, file contents, reflection contexts) to definitively verify vulnerabilities.
+- **Improved Reporting**: Reports now include a `leaked_data` section for each finding, differentiating between theoretical risks and proven exploits.
+
 ### 🐛 Bug Fixes
-- **Critical Crash Fix**: Resolved "unhashable type: slice" error caused by attempting to slice dictionary details in console output.
-- **JWT**: Now uses a dummy token for simulation if no token is provided, preventing the test from being skipped.
-- **Function Names**: Fixed function name mismatches for Deserialization and IDOR checks.
-
-## [2.5.0-ELITE] - 2025-12-11
-
-### 🚀 Features
-- **In-Place Updates**: Added `--update` flag (and enhanced `update` command) to automatically pull the latest changes via Git if available, enabling seamless upgrades without reinstallation.
+- **Critical Crash Fix**: Resolved "unhashable type: slice" error in console reporting.
+- **JWT**: Added dummy token support for robust testing.
+- **Function Names**: Fixed dispatcher mismatches for Deserialization and IDOR.
+- **In-Place Updates**: Added `--update` flag support.
 
 ## [2.4.0-ELITE] - 2025-12-11
 

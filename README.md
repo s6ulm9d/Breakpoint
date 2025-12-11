@@ -10,7 +10,7 @@
 
 # 💀 BREAKPOINT (Elite Edition)
 
-**Version:** 2.3.0-ELITE  
+**Version:** 2.5.2  
 **Status:** Weaponized / Audit-Grade  
 **Classification:** Offensive Security Tool (OST)
 
