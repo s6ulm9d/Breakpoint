@@ -49,7 +49,7 @@ def run_brute_force(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
     check = client.send(scenario.method, scenario.target, json_body={"u": "test", "p": "test"})
     if check.status_code in [404, 405]:
         if scenario.config.get("aggressive"):
-             print(f"    [!] Endpoint {scenario.target} returned {check.status_code}, but AGGRESSIVE mode is ON. Brute-forcing anyway...")
+             print(f"    [AGGRESSIVE] FORCE-ATTACK: Ignoring status {check.status_code} on {scenario.target}. Launching full dictionary attack.")
         else:
              return {
                 "scenario_id": scenario.id,

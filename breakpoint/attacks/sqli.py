@@ -9,7 +9,7 @@ def run_sqli_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
     
     if baseline.status_code in [404, 405]:
         if scenario.config.get("aggressive"):
-            print(f"    [!] Endpoint {scenario.target} returned {baseline.status_code}, but AGGRESSIVE mode is ON. Attacking anyway...")
+            print(f"    [AGGRESSIVE] FORCE-ATTACK: Ignoring status {baseline.status_code}. Injecting SQL payloads...")
         else:
             return {
                 "scenario_id": scenario.id,
