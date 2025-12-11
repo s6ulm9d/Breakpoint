@@ -2,6 +2,11 @@
 
 All notable changes to the "BREAKPOINT" engine will be documented in this file.
 
+## [2.5.0-ELITE] - 2025-12-11
+
+### 🚀 Features
+- **In-Place Updates**: Added `--update` flag (and enhanced `update` command) to automatically pull the latest changes via Git if available, enabling seamless upgrades without reinstallation.
+
 ## [2.4.0-ELITE] - 2025-12-11
 
 ### 🛠️ Fixes

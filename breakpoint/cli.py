@@ -69,10 +69,34 @@ def main():
 
     # 1. ARGUMENT MAGIC
     if len(sys.argv) > 1:
-        # Handle "update"
-        if sys.argv[1] == "update":
+        # Handle "update" command or "--update" flag
+        if sys.argv[1] == "update" or "--update" in sys.argv:
              print("[*] Checking for updates...")
              print("[*] Channel: https://github.com/soulmad/breakpoint/releases")
+             
+             # Attempt Git Pull first (In-Place Update)
+             is_git = os.path.exists(os.path.join(os.getcwd(), ".git"))
+             if is_git:
+                 print("[*] Git repository detected. Attempting in-place update...")
+                 try:
+                     import subprocess
+                     # Check connection first by fetching
+                     subprocess.check_call(["git", "fetch"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                     # Pull logic
+                     result = subprocess.run(["git", "pull"], capture_output=True, text=True)
+                     if result.returncode == 0:
+                         if "Already up to date" in result.stdout:
+                             print(f"[+] You are already up to date (v2.5.0-ELITE).")
+                         else:
+                             print(f"[+] Successfully updated to latest version.")
+                             print(f"    {result.stdout.strip()}")
+                     else:
+                         print(f"[-] Update failed: {result.stderr}")
+                 except Exception as e:
+                     print(f"[-] Auto-update failed: {e}")
+                 sys.exit(0)
+
+             # Fallback to API check for binary/non-git users
              try:
                  import requests
                  repo = "soulmad/breakpoint"
@@ -82,8 +106,8 @@ def main():
                     data = resp.json()
                     latest = data.get("tag_name", "Unknown")
                     print(f"[+] Latest Version: {latest}")
-                    print(f"[+] Current Version: 2.4.0-ELITE")
-                    if latest != "Unknown" and latest != "2.4.0-ELITE":
+                    print(f"[+] Current Version: 2.5.0-ELITE")
+                    if latest != "Unknown" and latest != "2.5.0-ELITE":
                          print(f"[!] Update Available! Download at: {data.get('html_url')}")
                     else:
                          print("[+] You are up to date.")
@@ -120,7 +144,8 @@ def main():
         formatter_class=argparse.RawTextHelpFormatter
     )
     
-    parser.add_argument("-v", "--version", action="version", version="BREAKPOINT v2.4.0-ELITE")
+    parser.add_argument("-v", "--version", action="version", version="BREAKPOINT v2.5.0-ELITE")
+    parser.add_argument("--update", action="store_true", help="Update the tool in-place")
     
     target_group = parser.add_argument_group("Targeting")
     target_group.add_argument("--base-url", help="Target URL (e.g., http://localhost:3000)")
