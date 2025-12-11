@@ -1,4 +1,4 @@
-name: Auto Release
+name: Release Pipeline
 
 on:
   push:
@@ -6,44 +6,73 @@ on:
       - 'v*'
 
 jobs:
-  build-and-release:
-    runs-on: windows-latest
-    permissions:
-      contents: write
-      
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows
+          - os: ubuntu-latest
+            target: linux
+          - os: macos-latest
+            target: macos
 
-      - name: Setup Python
-        uses: actions/setup-python@v4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
       - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install .
-          pip install pyinstaller requests pyyaml colorama
+        run: pip install . pyinstaller requests pyyaml colorama
 
-      - name: Build Binary
+      - name: Build Windows Installer
+        if: matrix.target == 'windows'
+        run: python build_binary.py
+
+      - name: Build Linux Binary
+        if: matrix.target == 'linux'
         run: |
-          python build_binary.py
-          Rename-Item -Path dist\breakpoint.exe -NewName breakpoint_windows.exe
+          pyinstaller breakpoint/cli.py --name breakpoint --onefile --add-data 'breakpoint/default_scenarios.yaml:breakpoint' --hidden-import breakpoint --clean
+
+      - name: Build macOS Binary
+        if: matrix.target == 'macos'
+        run: |
+          pyinstaller breakpoint/cli.py --name breakpoint --onefile --add-data 'breakpoint/default_scenarios.yaml:breakpoint' --hidden-import breakpoint --clean
+          
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.target }}
+          path: dist/*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare Release Assets
+        run: |
+          cp artifacts/build-windows/breakpoint-installer.exe ./
+          cp artifacts/build-linux/breakpoint ./breakpoint-linux-x86_64
+          cp artifacts/build-macos/breakpoint ./breakpoint-macos-x86_64
+          chmod +x breakpoint-linux-x86_64 breakpoint-macos-x86_64
 
       - name: Publish Release
         uses: softprops/action-gh-release@v1
         with:
-          files: dist/breakpoint_windows.exe
+          files: |
+            breakpoint-installer.exe
+            breakpoint-linux-x86_64
+            breakpoint-macos-x86_64
           name: Release ${{ github.ref_name }}
-          body: |
-            ## 🚀 Breakpoint ${{ github.ref_name }}
-            
-            **Enterprise-Grade Resilience Engine**
-            
-            ### Assets
-            - `breakpoint_windows.exe`: Main Executable
-            
-            *See CHANGELOG.md for details.*
           draft: false
           prerelease: false

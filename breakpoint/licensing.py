@@ -2,7 +2,21 @@ import hashlib
 import os
 import json
 
-LICENSE_FILE = os.path.join(os.path.expanduser("~"), ".breakpoint_license")
+import sys
+
+def get_app_data_dir():
+    if sys.platform == 'win32':
+        base = os.environ.get('LOCALAPPDATA', os.path.expanduser('~\\AppData\\Local'))
+        path = os.path.join(base, 'BreakPoint')
+    else:
+        path = os.path.expanduser('~/.config/breakpoint')
+    
+    if not os.path.exists(path):
+        try: os.makedirs(path)
+        except: pass
+    return path
+
+LICENSE_FILE = os.path.join(get_app_data_dir(), "license.json")
 
 def validate_license_key(key):
     """

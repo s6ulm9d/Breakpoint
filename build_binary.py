@@ -1,45 +1,52 @@
 import PyInstaller.__main__
+import shutil
 import os
-import sys
 
-def build():
-    # 1. Create temporary entry point in ROOT
-    # This ensures 'breakpoint' is treated as a package, resolving all import issues.
-    with open("run_breakpoint.py", "w") as f:
-        f.write("from breakpoint.cli import main\n")
-        f.write("if __name__ == '__main__':\n")
-        f.write("    main()\n")
+print("[*] Building Breakpoint Engine...")
+
+# 1. Build Core Engine
+# We use ; for Windows separator in add-data
+PyInstaller.__main__.run([
+    'breakpoint/cli.py',
+    '--name', 'breakpoint',
+    '--onefile',
+    '--add-data', 'breakpoint/default_scenarios.yaml;breakpoint',
+    '--hidden-import', 'breakpoint',
+    '--clean',
+    '--log-level', 'WARN',
+    '--distpath', 'dist',
+    '-y'
+])
+
+# 2. Rename for Embedding
+# Check dist root
+if os.path.exists('dist/breakpoint.exe'):
+    src_exe = 'dist/breakpoint.exe'
+    embed_exe = 'dist/breakpoint_embedded.exe'
+    
+    if os.path.exists(embed_exe):
+        os.remove(embed_exe)
         
-    print("[-] Created temporary entry point: run_breakpoint.py")
-    
-    # 2. Build
-    sep = os.pathsep
-    args = [
-        "run_breakpoint.py",       # USE ROOT ENTRY POINT
-        "--onefile",
-        "--name=breakpoint",
-        "--clean",
-        "--noconfirm",
-        "--console",
-        # Explicitly bundle the default scenarios file into 'breakpoint' folder in bundle
-        f"--add-data=breakpoint/default_scenarios.yaml{sep}breakpoint",
-        # Use simple hidden imports for known dynamic loaders, but root entry usually fixes most
-        "--hidden-import=breakpoint.attacks",
-        "--collect-all=breakpoint", # Force collect everything in package
-    ]
-    
-    print(f"[-] Running PyInstaller...")
-    try:
-        PyInstaller.__main__.run(args)
-        print("\n[+] Build Success!")
-        print(f"[+] Binary located at: {os.path.abspath('dist')}")
-    except Exception as e:
-        print(f"[!] Build Failed: {e}")
-        sys.exit(1)
-    finally:
-        # Cleanup
-        if os.path.exists("run_breakpoint.py"):
-            os.remove("run_breakpoint.py")
+    shutil.copy(src_exe, embed_exe)
+    print(f"[+] Prepared payload: {embed_exe}")
+else:
+    print("[-] Error: breakpoint.exe not found in dist/")
+    exit(1)
 
-if __name__ == "__main__":
-    build()
+print("[*] Building Windows Installer...")
+
+# 3. Build Installer (Bundling the engine)
+PyInstaller.__main__.run([
+    'installer.py',
+    '--name', 'breakpoint-installer',
+    '--onefile',
+    '--add-data', 'dist/breakpoint_embedded.exe;.',
+    '--uac-admin',
+    '--clean',
+    '--log-level', 'WARN',
+    '--distpath', 'dist',
+    '-y'
+])
+
+print("\n[SUCCESS] Build Pipeline Complete.")
+print(f"[+] Installer: dist/breakpoint-installer.exe")
