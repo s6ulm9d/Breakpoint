@@ -7,6 +7,7 @@ from breakpoint.metadata import get_metadata
 from breakpoint.safety_lock import SafetyLock
 from breakpoint.forensics import ForensicLogger
 from breakpoint.economics import FailureEconomics
+from breakpoint.licensing import get_license_status, save_license
 import argparse
 import sys
 import os
@@ -29,6 +30,63 @@ def get_default_scenarios_path():
         return os.path.join(os.path.dirname(__file__), 'default_scenarios.yaml')
 
 def main():
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "register":
+             if len(sys.argv) < 3:
+                 print("Usage: breakpoint register <KEY>")
+                 sys.exit(1)
+             key = sys.argv[2]
+             try:
+                 save_license(key)
+                 print(f"[+] License Activated: {key}")
+             except Exception as e:
+                 print(f"[-] Activation Failed: {e}")
+             sys.exit(0)
+
+        if sys.argv[1] == "init":
+            print("[*] Initializing Breakpoint workspace...")
+            # Copy default scenarios to current directory
+            target_path = os.path.join(os.getcwd(), "breakpoint_config.yaml")
+            try:
+                src = get_default_scenarios_path()
+                import shutil
+                shutil.copy(src, target_path)
+                print(f"[+] Created configuration file: {target_path}")
+                print("[+] Workspace initialized.")
+            except Exception as e:
+                print(f"[!] Initialization failed: {e}")
+            sys.exit(0)
+            
+        if sys.argv[1] == "update":
+            print("[*] Checking for updates...")
+            print("[*] Channel: https://github.com/soulmad/breakpoint/releases")
+            
+            try:
+                import requests
+                # Use GitHub API
+                repo = "soulmad/breakpoint"
+                url = f"https://api.github.com/repos/{repo}/releases/latest"
+                resp = requests.get(url, timeout=5)
+                
+                if resp.status_code == 200:
+                    data = resp.json()
+                    latest = data.get("tag_name", "Unknown")
+                    print(f"[+] Latest Version: {latest}")
+                    print(f"[+] Current Version: 2.0.0-ELITE")
+                    if latest != "Unknown" and latest != "2.0.0-ELITE":
+                         print(f"[!] Update Available! Download at: {data.get('html_url')}")
+                    else:
+                         print("[+] You are up to date.")
+                else: 
+                     print(f"[-] Could not fetch release info (Status: {resp.status_code})")
+                     print(f"[-] Manual check: https://github.com/{repo}/releases")
+
+            except Exception as e:
+                print(f"[!] Update Check Failed: {e}")
+                print(f"[-] Manual check: https://github.com/soulmad/breakpoint/releases")
+                
+            sys.exit(0)
+
     signal.signal(signal.SIGINT, signal_handler)
     
     # 1. PREPARE CLI
@@ -81,6 +139,10 @@ def main():
     print(f"{Fore.RED}   BREAKPOINT — WEAPONIZED RESILIENCE ENGINE")
     print(f"{Fore.RED}       \"Production is already broken.\"{Style.RESET_ALL}\n")
 
+    # LICENSE CHECK
+    license_type = get_license_status()
+    print(f"[*] LICENSE: {license_type} EDITION")
+
     # 1. LOCK & CONSENT (DISABLED BY USER REQUEST)
     # lock = SafetyLock(args.base_url)
     # lock.check_kill_switch()
@@ -92,8 +154,13 @@ def main():
     
     scenarios_path = args.scenarios
     if not scenarios_path:
-        scenarios_path = get_default_scenarios_path()
-        print(f"[*] No scenarios provided. Using built-in defaults: {scenarios_path}")
+        local_cfg = os.path.join(os.getcwd(), 'breakpoint_config.yaml')
+        if os.path.exists(local_cfg):
+            scenarios_path = local_cfg
+            print(f"[*] Auto-loaded local configuration: {scenarios_path}")
+        else:
+            scenarios_path = get_default_scenarios_path()
+            print(f"[*] No scenarios provided. Using built-in defaults: {scenarios_path}")
 
     try:
         scenarios = load_scenarios(scenarios_path)

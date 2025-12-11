@@ -49,27 +49,77 @@ It includes **Force-Multipliers** like Forensic Logging and Financial Liability 
 
 ## 🚀 Installation
 
-### 1. Global Command (Recommended)
-Install the tool to use the `breakpoint` command anywhere:
+### 1. End Users (Binary Release) - Recommended
+**No Python or Git required.** Follow these steps to run `breakpoint` from anywhere.
+
+#### Step A: Download
+1. Download the latest binary for your OS from the [Releases Page](https://github.com/soulmad/breakpoint/releases).
+2. Rename the file to `breakpoint.exe` (Windows) or `breakpoint` (Linux/Mac) for convenience.
+
+#### Step B: Install Globally (Add to PATH)
+
+**🪟 Windows**
+1. **Create a Folder**: Create a permanent folder (e.g., `C:\Tools\Breakpoint\`) and move `breakpoint.exe` inside it.
+2. **Add to PATH**:
+   * Press `Win + R`, type `sysdm.cpl`, and hit Enter.
+   * Go to **Advanced** tab -> **Environment Variables**.
+   * Under **User variables**, find `Path` -> Select it -> Click **Edit**.
+   * Click **New** -> Paste your folder path (`C:\Tools\Breakpoint\`).
+   * Click **OK** on all windows.
+
+**🐧 Linux / macOS**
+Move the binary to your executable path:
 ```bash
-git clone https://github.com/soulmad/breakpoint.git
-cd breakpoint
-pip install -e .
+chmod +x breakpoint
+sudo mv breakpoint /usr/local/bin/
 ```
 
-### 2. Dependencies Only
+#### Step C: Verify Installation
+Open a **new** terminal window and type `breakpoint` (without `.\`).
+
 ```bash
-pip install -r requirements.txt
+# You should see the help menu appears immediately:
+user@pc:~$ breakpoint --help
 ```
+
+### 2. Developers (Source Code)
+For contributors or those who want to run from source.
+**Prerequisites:** Python 3.8+, Git.
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/soulmad/breakpoint.git
+   cd breakpoint
+   ```
+
+2. Create a virtual environment (Recommended):
+   ```bash
+   # Windows
+   python -m venv .venv
+   .\.venv\Scripts\activate
+
+   # Linux / macOS
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+
+3. Install as an editable package:
+   ```bash
+   pip install -e .
+   ```
 
 ---
 
 ## ⚔️ Usage
 
+Once installed (or downloaded), use the `breakpoint` command.
+
+> **Tip:** If using the downloaded binary without adding it to your PATH, run it as `.\breakpoint.exe` (Windows) or `./breakpoint` (Linux/Mac).
+
 ### 1. Basic Audit
 Run the Elite Scenarios against a target:
 ```bash
-python -m breakpoint \
+breakpoint \
   --base-url http://localhost:3000 \
   --scenarios examples/elite_scenarios.yaml \
   --html-report audit.html
@@ -78,7 +128,7 @@ python -m breakpoint \
 ### 2. Aggressive Mode
 Enable **DESTRUCTIVE** tests (RCE File Writes, Server Crash Payloads) and high concurrency:
 ```bash
-python -m breakpoint \
+breakpoint \
   --base-url http://localhost:3000 \
   --scenarios examples/elite_scenarios.yaml \
   --aggressive \
@@ -88,7 +138,7 @@ python -m breakpoint \
 ### 3. CI/CD Integration (Unattended)
 Bypass interactive safety prompts for automated pipelines:
 ```bash
-python -m breakpoint \
+breakpoint \
   --base-url https://staging-api.com \
   --scenarios examples/elite_scenarios.yaml \
   --json-report results.json \
@@ -99,7 +149,7 @@ python -m breakpoint \
 ### 4. Continuous Attack Loop (Persistence)
 Run the attack suite in an infinite loop to stress test resilience over time:
 ```bash
-python -m breakpoint \
+breakpoint \
   --base-url http://localhost:3000 \
   --scenarios examples/elite_scenarios.yaml \
   --continuous \
@@ -108,9 +158,15 @@ python -m breakpoint \
 ```
 *(This will run indefinitely, waiting 10 seconds between each full attack cycle.)*
 
+> **Note for Developers:** If running from source without installing, you can use `python -m breakpoint ...` instead of `breakpoint ...`.
+
+
+---
+
 ---
 
 ## 🧱 Architecture
+
 The engine is built on a modular, plugin-based architecture:
 - **`breakpoint/engine.py`**: The core orchestrator.
 - **`breakpoint/attacks/`**: Individual attack plugins (e.g., `sqli.py`, `dos_extreme.py`).
