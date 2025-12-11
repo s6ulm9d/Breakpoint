@@ -41,7 +41,7 @@ breakpoint https://target.com
 
 ### Advanced Scan
 ```bash
-breakpoint --base-url https://target.com --aggressive
+breakpoint https://target.com --aggressive
 ```
 
 ---
