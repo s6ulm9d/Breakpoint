@@ -8,35 +8,37 @@ Welcome to the official installation guide for **BREAKPOINT (Elite Edition)**. T
 
 The recommended installation method for security auditors and penetration testers who simply want to run the tool.
 
-### 1. Download the Latest Release
+### 1. Download & Install (Zero Config)
 
-Navigate to the official Releases page and download the executable binary corresponding to your operating system.
+#### 🪟 Windows (Recommended)
+1.  Download **`breakpoint-installer.exe`** from the [Releases Page](https://github.com/soulmad/breakpoint/releases).
+2.  **Double-click** the file.
+3.  Click "Yes" on the Administrator Prompt.
+    -   The installer extracts the engine to `C:\Program Files\BreakPoint`.
+    -   It automatically configures your System `PATH`.
+4.  **Done**. Open a terminal and run `breakpoint`.
 
-- **Current Version:** `2.0.0-ELITE`
-- **File:** `breakpoint_windows.exe`
+#### 🐧 Linux / macOS
+Download the monolithic binary and move it to your bin path:
 
-### 2. Automated Installation (Windows)
+```bash
+# Linux
+wget https://github.com/soulmad/breakpoint/releases/latest/download/breakpoint-linux-x86_64
+chmod +x breakpoint-linux-x86_64
+sudo mv breakpoint-linux-x86_64 /usr/local/bin/breakpoint
 
-We provide a PowerShell script to automate the setup process (requires Administrator privileges).
+# macOS
+wget https://github.com/soulmad/breakpoint/releases/latest/download/breakpoint-macos-x86_64
+chmod +x breakpoint-macos-x86_64
+sudo mv breakpoint-macos-x86_64 /usr/local/bin/breakpoint
+```
 
-1.  Download `install.ps1` to the same folder as your `breakpoint_windows.exe`.
-2.  Right-click `install.ps1` and select **Run with PowerShell**.
-3.  The script will:
-    - Create `C:\Program Files\BreakPoint`.
-    - Rename and move the binary to `C:\Program Files\BreakPoint\breakpoint.exe`.
-    - Add the directory to your System PATH.
-4.  Once complete, restart your terminal.
-
-> **Manual Method:** If you prefer manual installation, create the folder `C:\Program Files\BreakPoint`, move/rename the file, and edit your System Environment Variables manually.
-
-### 5. Verification
-
-1.  Open a **new** Command Prompt (cmd) or PowerShell window.
-2.  Type the following command and press Enter:
-    ```bash
-    breakpoint --version
-    ```
-3.  You should see the BREAKPOINT version information, confirming a successful installation.
+### 2. Verification
+Open a terminal and run:
+```bash
+breakpoint --version
+```
+Output: `Breakpoint v2.3.0-ELITE`
 
 ---
 

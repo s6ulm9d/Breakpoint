@@ -8,11 +8,16 @@
 
 # 💀 BREAKPOINT (Elite Edition)
 
-**Version:** 2.0.0-ELITE  
+**Version:** 2.3.0-ELITE  
 **Status:** Weaponized / Audit-Grade  
 **Classification:** Offensive Security Tool (OST)
 
 > "Production is already broken. You just haven't proved it yet."
+
+## ✨ New in v2.3.0
+- **Zero Config**: No setup required. Just download and run.
+- **Full Spectrum**: Over 18 attack modules enabled (OWASP Top 10).
+- **Aggressive Mode**: Destructive payloads (`DROP TABLE`, `rm -rf`) gated behind `--aggressive`.
 
 ---
 
@@ -47,39 +52,35 @@ It includes **Force-Multipliers** like Forensic Logging and Financial Liability 
 
 ---
 
-## 🚀 Installation
+## 🚀 Installation (Zero Config)
 
-### 1. End Users (Binary Release) - Recommended
-**No Python or Git required.** Follow these steps to run `breakpoint` from anywhere.
+### 1. Windows (One-Click)
+1. Download **`breakpoint-installer.exe`** from the [Releases Page](https://github.com/soulmad/breakpoint/releases).
+2. Double-click to install. 
+   - Automatically installs to `C:\Program Files\BreakPoint`.
+   - Automatically adds to `PATH`.
+3. Open a **new** terminal and type `breakpoint`.
 
-#### Step A: Download
-1. Download the latest binary for your OS from the [Releases Page](https://github.com/soulmad/breakpoint/releases).
-2. Rename the file to `breakpoint.exe` (Windows) or `breakpoint` (Linux/Mac) for convenience.
+### 2. Linux / macOS
+Download and install the binary globally:
 
-#### Step B: Install Globally (Add to PATH)
-
-**🪟 Windows**
-1. **Create a Folder**: Create a permanent folder (e.g., `C:\Tools\Breakpoint\`) and move `breakpoint.exe` inside it.
-2. **Add to PATH**:
-   * Press `Win + R`, type `sysdm.cpl`, and hit Enter.
-   * Go to **Advanced** tab -> **Environment Variables**.
-   * Under **User variables**, find `Path` -> Select it -> Click **Edit**.
-   * Click **New** -> Paste your folder path (`C:\Tools\Breakpoint\`).
-   * Click **OK** on all windows.
-
-**🐧 Linux / macOS**
-Move the binary to your executable path:
 ```bash
-chmod +x breakpoint
-sudo mv breakpoint /usr/local/bin/
+wget https://github.com/soulmad/breakpoint/releases/latest/download/breakpoint-linux-x86_64
+# OR for Mac: .../breakpoint-macos-x86_64
+
+chmod +x breakpoint-linux-x86_64
+sudo mv breakpoint-linux-x86_64 /usr/local/bin/breakpoint
 ```
 
-#### Step C: Verify Installation
-Open a **new** terminal window and type `breakpoint` (without `.\`).
-
+### 3. Usage
+**Standard Scan** (Safe, Non-Destructive):
 ```bash
-# You should see the help menu appears immediately:
-user@pc:~$ breakpoint --help
+breakpoint https://target.com
+```
+
+**Aggressive Scan** (Destructive: SQLi DROP, RCE):
+```bash
+breakpoint https://target.com --aggressive
 ```
 
 ### 2. Developers (Source Code)

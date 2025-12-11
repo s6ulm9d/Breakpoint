@@ -39,7 +39,7 @@ graph TD
 ### B. Attack Plugins
 Located in `breakpoint/attacks/`. Each plugin must implement a `check()` or `attack()` interface.
 - **Isolation**: Crashes in one plugin do not affect the engine.
-- **Protocol**: HTTP/1.1 and HTTP/2 support via `requests` and `httpx` (future).
+- **Protocol**: HTTP/1.1 and HTTP/2 support via `requests`.
 
 ### C. Forensic Logger
 - **File**: `audit_UUID.log`
@@ -53,12 +53,16 @@ Located in `breakpoint/attacks/`. Each plugin must implement a `check()` or `att
 
 ## 3. Data Flow
 
-1.  **Initialization**: CLI args -> Config Object.
-2.  **Discovery**: Scenarios are validated against the Schema.
+1.  **Initialization (Zero Config)**:
+    -   If `~/.config/breakpoint/config.yaml` is missing, the Engine **auto-generates** it using embedded defaults.
+    -   This allows immediate execution without manual setup.
+2.  **Discovery**:
+    -   Scenarios are validated against the internal Schema.
+    -   **Aggressive Gates**: Attack modules check for the `aggressive: true` flag. Destructive payloads (e.g., `DROP TABLE`) are **only** loaded if this flag is present.
 3.  **Execution Scheme**:
-    - **Standard**: Sequential execution of scenario blocks, parallel execution of payloads within blocks.
-    - **Continuous**: Infinite loop with statistical deviation tracking.
-4.  **Output**: Atomic writes to disk to prevent corruption during crashes.
+    -   **Standard**: Sequential execution of scenario blocks, parallel execution of payloads within blocks.
+    -   **Continuous**: Infinite loop with statistical deviation tracking.
+4.  **Output**: Atomic writes to disk (Auto-generated `Documents/Reports` folder) to prevent corruption.
 
 ---
 
@@ -66,8 +70,8 @@ Located in `breakpoint/attacks/`. Each plugin must implement a `check()` or `att
 
 - **No Persistence**: The engine does not install agents on the target.
 - **Memory Safety**: Python's memory management minimizes buffer overflow risks within the tool itself.
-- **Secrets Management**: Credentials in YAML files should be injected via Environment Variables (Support planned for v2.1).
+- **Secrets Management**: Credentials in YAML files should be injected via Environment Variables.
 
 ---
 
-*For contribution guidelines, see CONTRIBUTING.md (Coming Soon).*
+*For contribution guidelines, see CONTRIBUTING.md.*
