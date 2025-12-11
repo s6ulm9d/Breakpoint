@@ -2,6 +2,14 @@
 
 All notable changes to the "BREAKPOINT" engine will be documented in this file.
 
+## [2.4.0-ELITE] - 2025-12-11
+
+### 🛠️ Fixes
+- **Attack Registry**: Fixed "Unknown check type" errors by properly registering all 15+ attack modules in the engine dispatcher.
+- **Error Handling**: Internal execution errors are now correctly marked as `LOW/ERROR` instead of `HIGH/VULNERABLE`.
+- **Legacy Compatibility**: Fixed `ForensicLogger` attribute errors in legacy header checks.
+- **Safe DoS**: The Slowloris module now defaults to a low-impact mode (Safe) if `--aggressive` is not provided, rather than skipping.
+
 ## [2.3.0-ELITE] - 2025-12-11
 
 ### 🚀 Major Features

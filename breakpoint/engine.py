@@ -123,12 +123,14 @@ class Engine:
             # Lazy import to avoid circular dep issues during init
             from .http_client import HttpClient
             from .attacks import crlf, xxe, rce, web_exploits, dos_extreme, cve_classics, brute
+            from .attacks import config_exposure, ssti, logic, jwt_weakness, deserialization, idor, lfi
             from .attacks import sqli as attack_sqli
             
             # Adapter: Create a fresh client for this thread
             client = HttpClient(self.base_url, verbose=self.verbose)
             
             res_dict = {}
+            # === DISPATCHER ===
             if check_type == "crlf_injection":
                 res_dict = crlf.run_crlf_injection(client, s)
             elif check_type == "xxe_exfil":
@@ -147,17 +149,46 @@ class Engine:
                 res_dict = brute.run_brute_force(client, s)
             elif check_type == "advanced_dos":
                 res_dict = web_exploits.run_advanced_dos(client, s)
-            elif check_type == "cve_log4shell":
+            
+            # Exposure & Secrets
+            elif check_type == "debug_exposure":
+                res_dict = config_exposure.run_debug_exposure(client, s)
+            elif check_type == "secret_leak":
+                res_dict = config_exposure.run_secret_leak(client, s)
+            
+            # Injection
+            elif check_type == "ssti":
+                res_dict = ssti.run_ssti_attack(client, s)
+            elif check_type == "insecure_deserialization":
+                res_dict = deserialization.run_deserialization_check(client, s)
+            
+            # Auth & IDOR
+            elif check_type == "jwt_weakness":
+                res_dict = jwt_weakness.run_jwt_attack(client, s)
+            elif check_type == "idor":
+                res_dict = idor.run_idor_check(client, s)
+            elif check_type == "lfi":
+                res_dict = lfi.run_lfi_attack(client, s)
+
+            # CVEs (Map strictly to yaml types)
+            elif check_type in ["log4shell", "cve_log4shell"]:
                 res_dict = cve_classics.run_log4j_attack(client, s)
-            elif check_type == "cve_spring4shell":
+            elif check_type in ["spring4shell", "cve_spring4shell"]:
                 res_dict = cve_classics.run_spring4shell(client, s)
-            elif check_type == "cve_struts2":
+            elif check_type in ["struts2_rce", "cve_struts2"]:
                 res_dict = cve_classics.run_struts2_rce(client, s)
+            
+            # Logic
+            elif check_type == "race_condition":
+                res_dict = logic.run_race_condition(client, s)
+            elif check_type == "otp_reuse":
+                res_dict = logic.run_otp_reuse(client, s)
+            
             elif check_type == "slowloris" or check_type == "dos_slowloris": # Handle alias
                 # DoS usually uses its own logic, assuming it returns CheckResult or compatible
                 return dos_extreme.check(self.base_url, s, self.logger)
             else:
-                return CheckResult(s.id, check_type, "ERROR", None, f"Unknown check type: {check_type}")
+                return CheckResult(s.id, check_type, "ERROR", "LOW", f"Unknown check type: {check_type}")
 
             # Convert Dict to CheckResult
             status = "PASSED" if res_dict.get("passed") else "VULNERABLE"
@@ -184,4 +215,5 @@ class Engine:
             )
 
         except Exception as e:
-            return CheckResult(s.id, s.type, "ERROR", None, str(e))
+            # Internal errors should be marked as ERROR/LOW, not VULNERABLE/HIGH
+            return CheckResult(s.id, s.type, "ERROR", "LOW", f"Internal Error: {str(e)}")

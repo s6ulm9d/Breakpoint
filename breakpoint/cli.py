@@ -82,8 +82,8 @@ def main():
                     data = resp.json()
                     latest = data.get("tag_name", "Unknown")
                     print(f"[+] Latest Version: {latest}")
-                    print(f"[+] Current Version: 2.3.0-ELITE")
-                    if latest != "Unknown" and latest != "2.3.0-ELITE":
+                    print(f"[+] Current Version: 2.4.0-ELITE")
+                    if latest != "Unknown" and latest != "2.4.0-ELITE":
                          print(f"[!] Update Available! Download at: {data.get('html_url')}")
                     else:
                          print("[+] You are up to date.")
@@ -120,7 +120,7 @@ def main():
         formatter_class=argparse.RawTextHelpFormatter
     )
     
-    parser.add_argument("-v", "--version", action="version", version="BREAKPOINT v2.3.0-ELITE")
+    parser.add_argument("-v", "--version", action="version", version="BREAKPOINT v2.4.0-ELITE")
     
     target_group = parser.add_argument_group("Targeting")
     target_group.add_argument("--base-url", help="Target URL (e.g., http://localhost:3000)")

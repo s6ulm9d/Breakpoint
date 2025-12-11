@@ -14,7 +14,9 @@ def check(base_url, scenario, logger):
 
     is_aggressive = scenario.config.get("aggressive", False)
     if not is_aggressive:
-        return CheckResult(scenario.id, scenario.type, "SKIPPED", None, "Aggressive mode not enabled.")
+        print("    [DoS] Standard Mode: Running light connectivity check only (Safe).")
+        target_socket_count = 10 # Very low for safe check
+        duration = 5
         
     parsed = urlparse(base_url)
     target_ip = parsed.hostname
