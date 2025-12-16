@@ -4,8 +4,21 @@ from ..http_client import HttpClient
 from ..scenarios import SimpleScenario
 
 def run_traffic_spike(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+    # Base count
     count = int(scenario.config.get("requests", 50))
     concurrency = int(scenario.config.get("concurrency", 5))
+
+    # AGGRESSIVE SCALING (User Request: Triple/Increase counts)
+    if scenario.config.get("aggressive"):
+        # If user didn't manually set a huge number in YAML, we force a massive spike
+        if count < 1500: 
+            count = 1500 # 30x standard, or "Tripled" if they had a heavier config
+        if concurrency < 50:
+            concurrency = 50
+            
+    # If still too low for a "DDoS", bump it
+    # But let's respect the logic: "Triple the requests count"
+    # If standard was 500, we make it 1500. So the logic above holds mostly.
     
     errors = 0
     latencies = []

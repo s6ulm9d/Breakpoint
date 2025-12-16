@@ -139,6 +139,133 @@
   method: POST
   config: {fields: [url, callback, webhook]}
 
+# --- 8. ADVANCED ATTACKS (RSC & Modern Web) ---
+- id: cache_poisoning_check
+  type: rsc_cache_poisoning
+  target: /
+  method: GET
+  config: {headers: ["X-Forwarded-Host", "X-Host", "X-Forwarded-Server"]}
+
+- id: web_cache_deception
+  type: cache_deception
+  target: /profile
+  method: GET
+  
+- id: http_request_smuggling
+  type: request_smuggling
+  target: /
+  method: POST
+  
+- id: server_side_action_forge
+  type: rsc_server_action_forge
+  target: /_next/data
+  method: POST
+  
+- id: hydration_collapse
+  type: rsc_hydration_collapse
+  target: /
+  method: GET
+  
+- id: trust_boundary_violation
+  type: rsc_flight_trust_boundary_violation
+  target: /api/flight
+  method: POST
+  
+- id: react_server_component_injection
+  type: rsc_flight_deserialization_abuse
+  target: /
+  method: POST
+
+- id: graphql_introspection
+  type: graphql_introspection
+  target: /graphql
+  method: POST
+  
+- id: graphql_batching_dos
+  type: graphql_batching
+  target: /graphql
+  method: POST
+
+- id: nosql_injection_login
+  type: nosql_injection
+  target: /login
+  method: POST
+  config: {fields: [username, password]}
+
+- id: ldap_injection_search
+  type: ldap_injection
+  target: /directory
+  method: GET
+  config: {fields: [user, cn, mail]}
+
+- id: xpath_injection_xml
+  type: xpath_injection
+  target: /api/soap
+  method: POST
+  config: {fields: [query, id]}
+
+- id: ssi_injection
+  type: ssi_injection
+  target: /
+  method: GET
+  config: {fields: [input]}
+
+- id: shellshock_legacy
+  type: shellshock
+  target: /cgi-bin/test
+  method: GET
+
+- id: clickjacking_check
+  type: clickjacking
+  target: /
+  method: GET
+
+- id: cors_misconfiguration
+  type: cors_origin
+  target: /api/data
+  method: GET
+
+- id: host_header_injection
+  type: host_header
+  target: /
+  method: GET
+
+- id: email_header_injection
+  type: email_injection
+  target: /contact
+  method: POST
+  config: {fields: [email, subject]}
+
+- id: jwt_weak_key_brute
+  type: jwt_brute
+  target: /api/auth
+  method: GET
+  
+- id: swagger_ui_exposure
+  type: swagger_exposure
+  target: /swagger-ui.html
+  method: GET
+  
+- id: git_exposure_check
+  type: git_exposure
+  target: /.git/HEAD
+  method: GET
+  
+- id: env_exposure_check
+  type: env_exposure
+  target: /.env
+  method: GET
+  
+- id: phpinfo_exposure
+  type: phpinfo
+  target: /phpinfo.php
+  method: GET
+  
+- id: ds_store_exposure
+  type: ds_store_exposure
+  target: /.DS_Store
+  method: GET
+
 # --- 8. DENIAL OF SERVICE (EXTREME) ---
 - id: slowloris_dos
   type: slowloris

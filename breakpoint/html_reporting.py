@@ -13,10 +13,13 @@ class HtmlReporter:
         """
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        total = len(results)
-        passed = sum(1 for r in results if (r.status in ["SECURE", "PASSED"] if hasattr(r, 'status') else r.get("passed")))
-        failed = total - passed
-        resilience_score = (passed / total * 100) if total > 0 else 0
+        passed = sum(1 for r in results if hasattr(r, 'status') and r.status in ["SECURE", "PASSED"])
+        failed = sum(1 for r in results if hasattr(r, 'status') and r.status == "VULNERABLE")
+        inconclusive = sum(1 for r in results if hasattr(r, 'status') and r.status in ["SKIPPED", "INCONCLUSIVE", "ERROR"])
+        
+        # TRUSTWORTHY SCORE: Only count valid tests (Passed + Failed)
+        valid_total = passed + failed
+        resilience_score = (passed / valid_total * 100) if valid_total > 0 else 0
 
         html = f"""
 <!DOCTYPE html>
@@ -94,102 +97,140 @@ class HtmlReporter:
              <h3>Severity Breakdown</h3>
              <small>Failed Scenarios: {failed}</small>
              <div style="margin-top: 10px;">
-                <!-- Simple bar viz -->
                 <div style="height: 10px; background: #333; border-radius: 5px; overflow: hidden; display: flex;">
                     <div style="width: {resilience_score}%; background: var(--pass);"></div>
                     <div style="width: {100-resilience_score}%; background: var(--crit);"></div>
                 </div>
              </div>
         </div>
+        
+        <!-- ENGINE HEALTH CARD -->
+        <div class="card">
+            <h3>Engine Health</h3>
+            <div style="font-size: 1.2rem; font-weight: bold; margin-bottom: 5px;">
+                {'🔴 CRASHED' if any(r.id == 'SYSTEM_CRASH' for r in results) else '🟢 STABLE'}
+            </div>
+            <div style="opacity: 0.8; font-size: 0.9rem;">
+                System Integrity
+            </div>
+             <div style="margin-top: 10px; font-size: 0.9rem; color: #888;">
+                Errors: {sum(1 for r in results if r.status == 'ERROR' and r.id != 'SYSTEM_CRASH')}
+            </div>
+        </div>
     </div>
     
-    <h2>Findings</h2>
+    <!-- CRITICAL FINDINGS SECTION -->
+    <h2>🔥 Critical Findings</h2>
     """
     
-        for r in results:
-            # Determine success (passed if SECURE or PASSED)
-            passed = r.status in ["SECURE", "PASSED"] if hasattr(r, 'status') else r.get("passed")
-            
-            if not passed:
+        vulnerabilities = [r for r in results if r.status == "VULNERABLE"]
+        
+        if not vulnerabilities:
+             html += """<div class="card" style="text-align: center; color: var(--pass);"><h3>✅ No Critical Vulnerabilities Found</h3></div>"""
+        else:
+            for r in vulnerabilities:
                 atype = r.type if hasattr(r, 'type') else r.get("attack_type", "unknown")
-                # Use severity from result if available, otherwise fetch from metadata
-                sev = r.severity if hasattr(r, 'severity') and r.severity else "HIGH" # Default high if missing
-                
-                details_text = r.details if hasattr(r, 'details') else r.get("details", "")
+                sev = r.severity if hasattr(r, 'severity') and r.severity else "HIGH"
                 scenario_id = r.id if hasattr(r, 'id') else r.get("scenario_id", "unknown")
-
-                # Try to get metadata using the type, but fallback gracefully
-                try:
-                    meta = get_metadata(atype)
-                except:
-                    meta = {"name": atype, "severity": sev, "description": f"Vulnerability detected in {atype}"}
                 
-                # Check specifics of 'details'
-                leaked = []
-                issues = []
+                # Metadata & Details Parsing
+                try: meta = get_metadata(atype)
+                except: meta = {"name": atype, "severity": sev, "description": f"Vulnerability detected in {atype}"}
                 
-                raw_details = r.details if hasattr(r, 'details') else r.get("details", "")
-                
-                # Attempt to parse dictionary from CheckResult
+                # Parse Details
                 import ast
-                
+                raw_details = r.details if hasattr(r, 'details') else r.get("details", "")
                 final_details = raw_details
+                if isinstance(raw_details, str) and raw_details.startswith("{"):
+                    try: final_details = ast.literal_eval(raw_details)
+                    except: pass
                 
-                if isinstance(raw_details, dict):
-                    final_details = raw_details
-                elif isinstance(raw_details, str):
-                    if raw_details.startswith("{") and "issues" in raw_details:
-                        try:
-                             # Safe eval for python dict string
-                             final_details = ast.literal_eval(raw_details)
-                        except:
-                             pass
-                
+                issues = []
+                leaked = []
                 if isinstance(final_details, dict):
                     issues = final_details.get("issues", [])
+                    leaked = final_details.get("leaked_data", [])
                     if isinstance(issues, str): issues = [issues]
-                    
-                    leaked = final_details.get("leaked_data", []) # List of strings
-                    
-                    # If we have neither, maybe it's just a dict of info
-                    if not issues and not leaked:
-                        issues = [str(final_details)]
+                    if not issues and not leaked: issues = [str(final_details)]
                 else:
                     issues = [str(final_details)]
-                
+
                 leaked_section = ""
                 if leaked:
-                    joined_leaked = "\\n".join(str(l) for l in leaked)
+                    joined_leaked = "\n".join(str(l) for l in leaked)
                     leaked_section = f'''
                     <div class="leak-box">
                         <div class="leak-head">⚠️ EXFILTRATED EVIDENCE / LEAKED DATA</div>
                         <pre>{joined_leaked}</pre>
                     </div>'''
+                
+                issues_section = ""
+                if issues:
+                     issues_list = "".join(f"<li>{i}</li>" for i in issues)
+                     issues_section = f"<ul style='margin-bottom: 0;'>{issues_list}</ul>"
 
                 html += f"""
-        <div class="finding">
-            <div class="finding-head">
-                <span class="badge bg-{sev}">{sev}</span>
-                <strong>{meta.get('name', atype)}</strong>
-                <span style="margin-left: auto; opacity: 0.6; font-size: 0.8rem;">{scenario_id}</span>
+            <div class="finding">
+                <div class="finding-head">
+                    <span class="badge bg-{sev}">{sev}</span>
+                    <strong>{meta.get('name', atype)}</strong>
+                    <span style="margin-left: auto; opacity: 0.6; font-size: 0.8rem;">{scenario_id}</span>
+                </div>
+                <div class="finding-body">
+                    <p style="margin-top: 0;">{meta.get('description', '')}</p>
+                    {leaked_section}
+                    <details open>
+                        <summary>Technical Details</summary>
+                        {issues_section}
+                    </details>
+                </div>
             </div>
-            <div class="finding-body">
-                <p style="margin-top: 0;">{meta.get('description', '')}</p>
-                
-                <!-- LEAKED DATA (FORENSIC PROOF) -->
-                {leaked_section}
-                
-                <details open>
-                    <summary>Technical Details & Issues</summary>
-                    <ul style="margin-bottom: 0;">{''.join(f'<li>{i}</li>' for i in issues)}</ul>
-                </details>
-            </div>
-        </div>
+            """
+
+        # FULL AUDIT LOG
+        html += """
+        <h2 style="margin-top: 60px;">📋 Full Audit Log</h2>
+        <div class="card" style="padding: 0; overflow: hidden;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+                <thead>
+                    <tr style="background: rgba(255,255,255,0.05); text-align: left; border-bottom: 1px solid var(--border);">
+                        <th style="padding: 12px 20px;">ID</th>
+                        <th style="padding: 12px 20px;">Type</th>
+                        <th style="padding: 12px 20px;">Status</th>
+                        <th style="padding: 12px 20px;">Details</th>
+                    </tr>
+                </thead>
+                <tbody>
         """
         
+        for r in results:
+            status = r.status
+            color_style = ""
+            if status == "VULNERABLE": color_style = "color: var(--crit); font-weight: bold;"
+            elif status == "PASSED": color_style = "color: var(--pass);"
+            elif status == "SKIPPED": color_style = "color: var(--high);" # Yellow
+            elif status == "SECURE": color_style = "color: var(--pass);"
+            
+            # Clean details for table
+            d_txt = str(r.details)
+            if len(d_txt) > 100: d_txt = d_txt[:100] + "..."
+            
+            html += f"""
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                    <td style="padding: 10px 20px; font-family: monospace;">{r.id}</td>
+                    <td style="padding: 10px 20px;">{r.type}</td>
+                    <td style="padding: 10px 20px; {color_style}">{status}</td>
+                    <td style="padding: 10px 20px; opacity: 0.7;">{d_txt}</td>
+                </tr>
+            """
+            
         html += """
+                </tbody>
+            </table>
+        </div>
+
     <div style="text-align: center; margin-top: 50px; opacity: 0.5; font-size: 0.8rem;">
-        Generated by BREAKPOINT v2.0-ELITE. contains sensitive vulnerability data. 
+        Generated by BREAKPOINT v2.5.1-ELITE. contains sensitive vulnerability data. 
     </div>
 </body>
 </html>

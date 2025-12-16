@@ -17,6 +17,32 @@
   method: GET
   config: {fields: [url, next, returnTo]}
 
+# === RSC Death Suite (React Server Components) ===
+- id: rsc_trust_boundary
+  type: rsc_flight_trust_boundary_violation
+  target: /
+  method: POST
+
+- id: rsc_action_forge
+  type: rsc_server_action_forge
+  target: /
+  method: POST
+  
+- id: rsc_cache_desync
+  type: rsc_cache_poisoning
+  target: /
+  method: GET
+
+- id: rsc_hydration_bypass
+  type: rsc_hydration_collapse
+  target: /
+  method: GET
+  
+- id: rsc_framework_ssrf
+  type: rsc_ssr_ssrf
+  target: /
+  method: GET 
+
 # 2. Injection Attacks (High Severity)
 - id: aggressive_sqli_login
   type: sql_injection

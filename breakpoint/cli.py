@@ -14,6 +14,7 @@ import os
 import signal
 import shutil
 import datetime
+from colorama import Fore, Style, init
 
 def signal_handler(sig, frame):
     print("\n[!] Force Quitting (Ctrl+C detected)...")
@@ -55,6 +56,7 @@ def get_default_scenarios_path():
         return os.path.join(os.path.dirname(__file__), 'default_scenarios.yaml')
 
 def main():
+    init(autoreset=True)
     # 0. AUTO-INIT WORKSPACE (Silent)
     app_data = get_app_data_dir()
     config_path = os.path.join(app_data, "default_scenarios.yaml")
@@ -163,6 +165,8 @@ def main():
     conf_group.add_argument("--verbose", action="store_true")
     conf_group.add_argument("--continuous", action="store_true")
     conf_group.add_argument("--interval", type=int, default=0)
+    conf_group.add_argument("--proxies", help="Path to file containing proxies (http[s]://IP:PORT)")
+    conf_group.add_argument("--headers", action="append", help="Global headers (Key:Value) for auth/customization")
     
     # Catch known commands to prevent error
     args, unknown = parser.parse_known_args()
@@ -184,7 +188,65 @@ def main():
 
     # Defaults
     if args.concurrency is None:
-        args.concurrency = 20 if args.aggressive else 5
+        # SUPERCHARGE DEFAULTS for Modern Local Machines
+        args.concurrency = 200 if args.aggressive else 50
+
+    # AUTO-DETECT proxies.txt if available and not specified
+    if not args.proxies and os.path.exists("proxies.txt"):
+        print("[*] Found 'proxies.txt' in current directory. Loading...")
+        args.proxies = "proxies.txt"
+
+    # Proxy Loading
+    proxies = []
+    if args.proxies:
+        if os.path.exists(args.proxies):
+            with open(args.proxies, 'r', encoding='utf-8', errors='ignore') as f:
+                proxies = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
+            print(f"[*] Loaded {len(proxies)} proxies from {args.proxies}")
+            
+    # AUTO-FETCH if file was empty OR if user didn't provide file but wants aggressive mode
+    # "Real IP Rotation" requires Real Proxies.
+    if len(proxies) == 0 and (args.proxies or args.aggressive):
+        print(f"[!] No manual proxies found. Triggering AUTO-FETCH for Aggressive Rotation...")
+        try:
+            from breakpoint.proxy_fetcher import fetch_public_proxies
+            proxies = fetch_public_proxies(limit=2000) # Fetch up to 2000 for rotation
+            
+            # Persist for user inspection
+            try:
+                with open("proxies.txt", "w", encoding='utf-8') as f:
+                    f.write("\n".join(proxies))
+                print(f"[+] Saved {len(proxies)} fetched proxies to 'proxies.txt'")
+            except: pass
+            
+        except Exception as e:
+            print(f"[-] Auto-fetch failed: {e}") 
+    
+    # CRITICAL FIX: PREVENT REMOTE PROXIES FROM ATTACKING LOCALHOST
+    # Remote proxies cannot see your 127.0.0.1. Traffic would go to the PROXY'S localhost.
+    if "localhost" in args.base_url or "127.0.0.1" in args.base_url or "0.0.0.0" in args.base_url:
+        if len(proxies) > 0:
+            print(f"\n{Fore.RED}" + "!"*60)
+            print(" [!] LOCALHOST DETECTED with REMOTE PROXIES")
+            print("     Remote proxies cannot forward traffic to your local machine.")
+            print("     Using them against localhost results in 'Faked' responses (attacking the proxy itself).")
+            print("     -> DISABLING TCP PROXIES for this run.")
+            print("     -> ACTIVATING LAYER-7 IP ROTATION (Header Spoofing) to bypass Rate Limits.")
+            print("!"*60 + f"{Style.RESET_ALL}\n")
+            proxies = [] # Force disable to ensure connection works
+
+    if len(proxies) == 0 and args.aggressive and "localhost" not in args.base_url:
+         print(f"{Fore.YELLOW}[!] WARNING: Aggressive Mode enabled but NO PROXIES available.")
+         print(f"    Your real IP will be banned. We strongly recommend providing a proxy list.{Style.RESET_ALL}")
+
+    # Header Loading
+    global_headers = {}
+    if args.headers:
+        for h in args.headers:
+            if ":" in h:
+                k, v = h.split(":", 1)
+                global_headers[k.strip()] = v.strip()
+        print(f"[*] Loaded {len(global_headers)} global headers.")
 
     # Report Path Default
     if not args.html_report and not args.json_report and not args.sarif_report:
@@ -196,8 +258,8 @@ def main():
         except:
             pass
 
-    from colorama import Fore, Style, init
-    init(autoreset=True)
+            pass
+
     
     BANNER = r"""
   ____  _____  ______          _   _ _____   ____ _____ _   _ _______ 
@@ -233,7 +295,34 @@ def main():
         print(f"\n[!!!] FATAL: Failed to load scenarios: {e}")
         sys.exit(1)
 
-    engine = Engine(base_url=args.base_url, forensic_log=logger, verbose=args.verbose)
+    # INTERACTIVE AUTHORIZATION REMOVED (User Request: "make it to run directly without asking")
+    # Users should use --headers "Authorization: ..." if needed.
+    pass
+
+    # SAFETY CHECK: DESTRUCTIVE MODE CONFIRMATION
+    # User Requirement: "what if pressed temporarily it should ask to type i authorize destruction in captial letters"
+    if args.aggressive or args.force_live_fire:
+        if sys.stdin.isatty():
+            print(f"\n{Fore.RED}" + "!"*60)
+            print(" 🛑 DANGER: DESTRUCTIVE / AGGRESSIVE MODE ENABLED")
+            print("    This mode will launch massive DoS attacks, write files, and potentially crash the target.")
+            print("    You must explicitly authorize this action.")
+            print("!"*60 + f"{Style.RESET_ALL}")
+            
+            print(f"\nType {Fore.RED}'I AUTHORIZE DESTRUCTION'{Style.RESET_ALL} to proceed:")
+            confirmation = input().strip()
+            
+            if confirmation != "I AUTHORIZE DESTRUCTION":
+                print(f"\n{Fore.RED}[!] Authorization Failed. You did not type the required phrase exactly.{Style.RESET_ALL}")
+                print("    Aborting aggressive scan for safety.")
+                sys.exit(1)
+            else:
+                print(f"\n{Fore.GREEN}[+] DESTRUCTION AUTHORIZED. UNLEASHING CHAOS...{Style.RESET_ALL}\n")
+
+            # Safety lock handled manually above by strict prompt logic
+            pass
+
+    engine = Engine(base_url=args.base_url, forensic_log=logger, verbose=args.verbose, proxies=proxies, headers=global_headers)
     
     if args.aggressive:
          for s in scenarios:
@@ -256,7 +345,19 @@ def main():
         except Exception as e:
             print(f"\n[!!!] CRITICAL FAILURE: {e}")
             logger.log_event("CRASH", {"error": str(e)})
-            if not args.continuous: sys.exit(1)
+            
+            # Add Crash Result for Reporting
+            from breakpoint.models import CheckResult
+            results.append(CheckResult("SYSTEM_CRASH", "ENGINE_FAILURE", "ERROR", "CRITICAL", f"Engine Crashed: {str(e)}"))
+            
+            if not args.continuous: 
+                # Generate reports even on crash if possible
+                try: 
+                    reporter = ConsoleReporter()
+                    reporter.print_summary(results)
+                    if args.html_report: HtmlReporter(args.html_report).generate(results, {"total_estimated_damage": "$0", "downtime_minutes": 0}, {"target": args.base_url, "run_id": "CRASHED", "signature": "INVALID"})
+                except: pass
+                sys.exit(1)
 
         econ = FailureEconomics()
         damage = econ.calculate_impact(results)

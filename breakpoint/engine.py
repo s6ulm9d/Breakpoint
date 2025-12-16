@@ -1,28 +1,17 @@
-import yaml
 import requests
 from typing import List, Dict, Any, Optional
 from .reporting.forensics import ForensicLogger
-from .checks import headers, bruteforce, reflection, performance, react2shell, sqli, xss, ssrf
-from .attacks import dos_extreme
+from .attacks import dos_extreme, cache
 from .models import Scenario, CheckResult
 
-def load_scenarios(path: str) -> List[Scenario]:
-    with open(path, 'r') as f:
-        data = yaml.safe_load(f)
-    return [Scenario(
-        id=item['id'],
-        type=item['type'],
-        target=item['target'],
-        method=item.get('method', 'GET'),
-        config=item.get('config', {})
-    ) for item in data]
-
 class Engine:
-    def __init__(self, base_url: str, forensic_log: Optional[ForensicLogger] = None, verbose: bool = False):
+    def __init__(self, base_url: str, forensic_log: Optional[ForensicLogger] = None, verbose: bool = False, proxies: List[str] = None, headers: Dict[str, str] = None):
         self.base_url = base_url.rstrip('/')
         self.verbose = verbose
         # Use provided logger or create a new one
         self.logger = forensic_log if forensic_log else ForensicLogger(verbose=verbose)
+        self.proxies = proxies or []
+        self.headers = headers or {}
         self._check_connection()
 
     def _check_connection(self):
@@ -33,17 +22,16 @@ class Engine:
             from requests.packages.urllib3.exceptions import InsecureRequestWarning
             requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
             
-            requests.get(self.base_url, timeout=5, verify=False)
-            print("    -> Target UP (Connection Successful).")
-        except requests.exceptions.ConnectionError:
-            print(f"\n❌ ERROR: Could not connect to {self.base_url}")
-            print(f"   Reason: Connection Refused or Host Unreachable.")
-            if "localhost" in self.base_url or "127.0.0.1" in self.base_url:
-                print("   💡 Tip: Are you sure the server is running on this port?")
-                print("   💡 Tip: Check if you need 'http://' instead of 'https://'.")
-            import sys; sys.exit(1)
+            # Simple probe - maybe use proxy if available? Best to check direct first unless force proxy.
+            # But let's check direct.
+            # Use global headers for probe too (e.g. Auth)
+            resp = requests.get(self.base_url, timeout=10, verify=False, headers=self.headers)
+            print(f"    -> Target UP (Status: {resp.status_code}).")
         except Exception as e:
-            print(f"⚠️ Warning: Connectivity probe failed ({e}), but proceeding...")
+            print(f"\n❌ FATAL ERROR: Could not connect to {self.base_url}")
+            print(f"   Reason: {e}")
+            print("   [!] Aborting scan. Cannot exploit a target that cannot be reached.")
+            import sys; sys.exit(1) # Strict Exit
 
     def run_all(self, scenarios: List[Scenario], concurrency: int = 5) -> List[CheckResult]:
         import concurrent.futures
@@ -54,6 +42,7 @@ class Engine:
         # Concurrency level: Use global default if provided, otherwise default to high parallelism
         # NOTE: self.concurrency controls are handled in CLI now
         results = []
+        rate_limit_hits = 0
 
         # Split scenarios: DoS MUST run last to avoid killing the server while checking XSS/SQLi
         dos_scenarios = [s for s in scenarios if s.type == "dos_slowloris"]
@@ -63,41 +52,113 @@ class Engine:
         if std_scenarios:
             print(f"[*] Phase 1: Running {len(std_scenarios)} vulnerability checks (High Speed)...")
             try:
+                # Wrap concurrency logic in try-except to prevent any crash from killing the engine
                 with ThreadPoolExecutor(max_workers=concurrency) as executor:
                     future_to_scenario = {executor.submit(self._execute_scenario, s): s for s in std_scenarios}
                     
-                    try:
-                        for future in as_completed(future_to_scenario):
-                            scenario = future_to_scenario[future]
-                            try:
-                                # 🚨 GLOBAL TIMEOUT: Kill any scenario taking > 60 seconds
-                                result = future.result(timeout=60)
-                                results.append(result)
-                                color = Fore.GREEN if result.status in ["PASSED", "SECURE"] else Fore.RED
-                                print(f"    -> {color}[{result.status}] {str(result.details)[:50]}...{Style.RESET_ALL}")
+                    for future in as_completed(future_to_scenario):
+                        scenario = future_to_scenario[future]
+                        try:
+                            # 🚨 GLOBAL TIMEOUT: Kill any scenario taking > 60 seconds
+                            result = future.result(timeout=60)
+                            results.append(result)
+
+                            # Determine Status Color & Label
+                            color = Fore.GREEN
+                            if result.status == "VULNERABLE":
+                                color = Fore.RED
+                            elif result.status in ["SKIPPED", "BLOCKED"]: # Rate Limited or Network Blocked
+                                color = Fore.YELLOW
+                                rate_limit_hits += 1
+                            elif result.status == "ERROR":
+                                color = Fore.RED
+
+                            print(f"    -> {color}[{result.status}] {str(result.details)[:80]}...{Style.RESET_ALL}")
+                            
+                            # SHOW PROOF (Structured & Aligned)
+                            if result.status == "VULNERABLE":
+                                print(f"\n{Fore.RED}" + "="*60)
+                                print(f" 🔥 CRITICAL VULNERABILITY FOUND: {scenario.type.upper()}")
+                                print(f"="*60 + f"{Style.RESET_ALL}")
                                 
-                            except concurrent.futures.TimeoutError:
-                                print(f"{Fore.RED}    -> [TIMEOUT] Scenario {scenario.id} exceeded 60s limit. KILLED.{Style.RESET_ALL}")
-                                results.append(CheckResult(scenario.id, scenario.type, "ERROR", None, "Execution timed out (60s limit)."))
+                                # Labels in Red, Values in default (or Green for Description) to keep it clean
+                                print(f" {Fore.RED}{'Target Endpoint:':<20}{Style.RESET_ALL} {scenario.method} {scenario.target}")
                                 
-                            except Exception as exc:
-                                print(f"{Fore.RED}    -> [ERROR] Scenario {scenario.id} generated an exception: {exc}{Style.RESET_ALL}")
-                    except KeyboardInterrupt:
-                        print(f"\n{Fore.RED}[!] User interrupted scan (Ctrl+C). Exiting immediately...{Style.RESET_ALL}")
-                        import os; os._exit(1)
+                                # Extract Description/Title
+                                desc = ""
+                                if isinstance(result.details, dict):
+                                    desc = result.details.get("title") or "Vulnerability confirmed via active exploit."
+                                    issues = result.details.get("issues", [])
+                                    
+                                    # Deduplicate Issues
+                                    unique_issues = list(dict.fromkeys(issues))
+                                    
+                                    if unique_issues:
+                                        print(f" {Fore.RED}{'Key Issues:':<20}{Style.RESET_ALL}")
+                                        for i in unique_issues[:5]: 
+                                            print(f"   - {i}")
+                                else:
+                                    desc = str(result.details)[:100]
+                                
+                                print(f" {Fore.RED}{'Description:':<20}{Style.RESET_ALL} {desc}")
+
+                                # LEAKED DATA ALIGNMENT
+                                leaked = None
+                                if isinstance(result.details, dict):
+                                    leaked = result.details.get("leaked_data") or result.details.get("evidence") or result.details.get("reason")
+                                
+                                if leaked:
+                                    print(f"\n {Fore.RED}[ EVIDENCE / LEAKED DATA ]{Style.RESET_ALL}")
+                                    print(f" {Fore.RED}" + "-"*40 + f"{Style.RESET_ALL}")
+                                    
+                                    if isinstance(leaked, list):
+                                        unique_leaks = list(dict.fromkeys([str(i).strip() for i in leaked if i]))
+                                        for idx, item in enumerate(unique_leaks[:5]):
+                                            # Clean up newlines for better box fitting
+                                            clean_item = item.replace('\n', ' ').replace('\r', '')
+                                            print(f" {idx+1:02}. {clean_item[:300]}")
+                                    else:
+                                        print(f" >> {str(leaked).strip()[:400]}...")
+                                    print(f" {Fore.RED}" + "-"*40 + f"{Style.RESET_ALL}\n")
+                                print(f"{Fore.RED}" + "="*60 + f"{Style.RESET_ALL}\n")
+                            
+                        except concurrent.futures.TimeoutError:
+                            print(f"{Fore.RED}    -> [TIMEOUT] Scenario {scenario.id} exceeded 60s limit. KILLED.{Style.RESET_ALL}")
+                            results.append(CheckResult(scenario.id, scenario.type, "ERROR", None, "Execution timed out (60s limit)."))
+                            
+                        except Exception as exc:
+                            import traceback
+                            tb = traceback.format_exc()
+                            print(f"{Fore.RED}    -> [ERROR] Scenario {scenario.id} CRASHED: {exc}{Style.RESET_ALL}")
+                            # print(tb) # Optional: Print full stack to console if very verbose
+                            self.logger.log_event("SCENARIO_CRASH", {"id": scenario.id, "error": str(exc), "traceback": tb})
+                            results.append(CheckResult(scenario.id, scenario.type, "ERROR", None, f"Exception: {str(exc)}"))
+
             except KeyboardInterrupt:
-                 import os; os._exit(1)
+                print(f"\n{Fore.RED}[!] User interrupted scan (Ctrl+C). Exiting immediately...{Style.RESET_ALL}")
+                import os; os._exit(1)
+            except Exception as e:
+                # Catch-all for thread pool logic failure
+                print(f"{Fore.RED}[!!!] CRITICAL: Engine Loop Failed: {e}{Style.RESET_ALL}")
 
         # 2. Run Destructive DoS (Last)
         if dos_scenarios:
             print(f"\n[*] Phase 2: Execution Destructive DoS Attacks ({len(dos_scenarios)})...")
-            for s in dos_scenarios:
-                 # DoS is blocking usually, but we run it directly here
-                 res = self._execute_scenario(s)
-                 results.append(res)
-                 color = Fore.GREEN if res.status in ["PASSED", "SECURE"] else Fore.RED
-                 print(f"    -> {color}[{res.status}] {str(res.details)[:50]}...{Style.RESET_ALL}")
-                    
+            try:
+                for s in dos_scenarios:
+                     # DoS is blocking usually, but we run it directly here
+                     res = self._execute_scenario(s)
+                     results.append(res)
+                     color = Fore.GREEN if res.status in ["PASSED", "SECURE"] else Fore.RED
+                     print(f"    -> {color}[{res.status}] {str(res.details)[:50]}...{Style.RESET_ALL}")
+            except Exception as e:
+                 print(f"{Fore.RED}[!!!] DoS Phase Failed: {e}{Style.RESET_ALL}")
+        
+        # 3. Final Stability Check
+        if rate_limit_hits > 0:
+            print(f"\n{Fore.YELLOW}[!] WARNING: {rate_limit_hits} checks were BLOCKED by WAF/Network (Status: 403/Connection Failed).")
+            print(f"    Try increasing timeout or using premium proxies.{Style.RESET_ALL}")
+
         return results
 
     def _execute_scenario(self, s: Scenario) -> CheckResult:
@@ -106,32 +167,34 @@ class Engine:
             # Resolve actual check type (Handle SimpleScenario wrapper)
             check_type = s.attack_type if getattr(s, 'type', '') == 'simple' and hasattr(s, 'attack_type') else s.type
             
-            # === LEGACY CHECKS (Direct Request) ===
-            if check_type == "header_security":
-                return headers.check(self.base_url, s, self.logger)
-            # brute_force moved to new attacks
-            elif check_type == "reflection":
-                return reflection.check(self.base_url, s, self.logger)
-            elif check_type == "performance":
-                return performance.check(self.base_url, s, self.logger)
-            elif check_type == "react2shell":
-                return react2shell.check(self.base_url, s, self.logger)
-            elif check_type == "ssrf":
-                return ssrf.check(self.base_url, s, self.logger)
-            
             # === NEW ATTACKS (HttpClient Based) ===
             # Lazy import to avoid circular dep issues during init
             from .http_client import HttpClient
             from .attacks import crlf, xxe, rce, web_exploits, dos_extreme, cve_classics, brute
             from .attacks import config_exposure, ssti, logic, jwt_weakness, deserialization, idor, lfi
             from .attacks import sqli as attack_sqli
+            from .attacks import headers, ssrf, performance # Migrated checks
             
             # Adapter: Create a fresh client for this thread
-            client = HttpClient(self.base_url, verbose=self.verbose)
+            client = HttpClient(self.base_url, verbose=self.verbose, proxies=self.proxies, headers=self.headers)
             
             res_dict = {}
             # === DISPATCHER ===
-            if check_type == "crlf_injection":
+            
+            # Migrated Legacy Checks
+            if check_type == "header_security":
+                res_dict = headers.run_header_security_check(client, s)
+            elif check_type == "ssrf":
+                res_dict = ssrf.run_ssrf_attack(client, s)
+            elif check_type == "react2shell":
+                res_dict = rce.run_rce_attack(client, s)
+            elif check_type == "performance":
+                res_dict = performance.run_performance_check(client, s)
+            elif check_type == "reflection":
+                res_dict = web_exploits.run_xss_scan(client, s) # Closest equivalent
+            
+            # Standard Attacks
+            elif check_type == "crlf_injection":
                 res_dict = crlf.run_crlf_injection(client, s)
             elif check_type == "xxe_exfil":
                 res_dict = xxe.run_xxe_exfil(client, s)
@@ -139,6 +202,23 @@ class Engine:
                 res_dict = web_exploits.run_prototype_pollution(client, s)
             elif check_type == "rce":
                 res_dict = rce.run_rce_attack(client, s)
+            elif check_type in ["rsc_flight_trust_boundary_violation", "rsc_flight_deserialization_abuse"]:
+                 from .attacks import rsc_flight_trust_boundary_violation
+                 res_dict = rsc_flight_trust_boundary_violation.run_rsc_flight_check(client, s)
+            elif check_type == "rsc_server_action_forge":
+                 from .attacks import rsc_server_action_forge
+                 res_dict = rsc_server_action_forge.run_server_action_forge(client, s)
+            elif check_type == "cache_deception":
+                 res_dict = cache.run_cache_deception(client, s)
+            elif check_type == "rsc_ssr_ssrf":
+                 from .attacks import rsc_ssr_ssrf
+                 res_dict = rsc_ssr_ssrf.run_ssr_ssrf(client, s)
+            elif check_type == "rsc_cache_poisoning":
+                 from .attacks import rsc_cache_poisoning
+                 res_dict = rsc_cache_poisoning.run_cache_poisoning(client, s)
+            elif check_type == "rsc_hydration_collapse":
+                 from .attacks import rsc_hydration_collapse
+                 res_dict = rsc_hydration_collapse.run_hydration_collapse(client, s)
             elif check_type == "sql_injection":
                 res_dict = attack_sqli.run_sqli_attack(client, s)
             elif check_type == "xss":
@@ -169,7 +249,45 @@ class Engine:
                 res_dict = idor.run_idor_check(client, s)
             elif check_type == "lfi":
                 res_dict = lfi.run_lfi_attack(client, s)
-
+            
+            # --- MISC / NEW ATTACKS DISPATCH ---
+            elif check_type == "shellshock":
+                res_dict = cve_classics.run_shellshock(client, s)
+            elif check_type == "clickjacking":
+                res_dict = web_exploits.run_clickjacking(client, s)
+            elif check_type == "cors_origin":
+                res_dict = web_exploits.run_cors_misconfig(client, s)
+            elif check_type == "host_header":
+                res_dict = web_exploits.run_host_header_injection(client, s)
+            elif check_type == "email_injection":
+                res_dict = web_exploits.run_email_injection(client, s)
+            elif check_type == "jwt_brute":
+                res_dict = jwt_weakness.run_jwt_brute(client, s)
+            elif check_type == "swagger_exposure":
+                 res_dict = config_exposure.run_swagger_check(client, s)
+            elif check_type == "git_exposure":
+                 res_dict = config_exposure.run_git_exposure(client, s)
+            elif check_type == "env_exposure":
+                 res_dict = config_exposure.run_env_exposure(client, s)
+            elif check_type == "phpinfo":
+                 res_dict = config_exposure.run_phpinfo(client, s)
+            elif check_type == "ds_store_exposure":
+                 res_dict = config_exposure.run_ds_store(client, s)
+            elif check_type == "nosql_injection":
+                 res_dict = attack_sqli.run_nosql_injection(client, s)
+            elif check_type == "ldap_injection":
+                  res_dict = attack_sqli.run_ldap_injection(client, s)
+            elif check_type == "xpath_injection":
+                  res_dict = attack_sqli.run_xpath_injection(client, s)
+            elif check_type == "ssi_injection":
+                  res_dict = web_exploits.run_ssi_injection(client, s)
+            elif check_type == "request_smuggling":
+                  res_dict = web_exploits.run_request_smuggling(client, s)
+            elif check_type == "graphql_introspection":
+                  res_dict = web_exploits.run_graphql_introspection(client, s)
+            elif check_type == "graphql_batching":
+                   res_dict = web_exploits.run_graphql_batching(client, s)
+            
             # CVEs (Map strictly to yaml types)
             elif check_type in ["log4shell", "cve_log4shell"]:
                 res_dict = cve_classics.run_log4j_attack(client, s)
@@ -191,8 +309,15 @@ class Engine:
                 return CheckResult(s.id, check_type, "ERROR", "LOW", f"Unknown check type: {check_type}")
 
             # Convert Dict to CheckResult
-            status = "PASSED" if res_dict.get("passed") else "VULNERABLE"
-            # If skipped
+            if res_dict.get("rate_limited"):
+                 status = "SKIPPED"
+                 details = "Target blocked request (429/403 Rate Limit)."
+            elif res_dict.get("passed"):
+                 status = "PASSED"
+            else:
+                 status = "VULNERABLE"
+
+            # If skipped (legacy logic)
             if res_dict.get("skipped"):
                 status = "SECURE"
                 
@@ -214,6 +339,15 @@ class Engine:
                 details=details
             )
 
+        except (requests.exceptions.RequestException, ConnectionError) as e:
+            # Network/WAF blocking is not an internal code crash. Mark as BLOCKED.
+            return CheckResult(
+                s.id, 
+                s.type, 
+                "BLOCKED", 
+                "LOW", 
+                f"Network Blocked: {str(e)[:50]}..."
+            )
         except Exception as e:
-            # Internal errors should be marked as ERROR/LOW, not VULNERABLE/HIGH
+            # Internal logic errors (bugs) should still be ERROR
             return CheckResult(s.id, s.type, "ERROR", "LOW", f"Internal Error: {str(e)}")

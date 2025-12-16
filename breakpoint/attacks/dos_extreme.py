@@ -26,19 +26,24 @@ def check(base_url, scenario, logger):
     target_socket_count = int(scenario.config.get("sockets", 2000)) 
     
     # Aggressive override: If user wants aggressive, we shouldn't be limited by weak config defaults
+    # Aggressive override: If user wants aggressive, we shouldn't be limited by weak config defaults
     if is_aggressive:
         # Override to ensure we actually drop the server as requested
-        # 100 is way too low (default in yaml), 2000 is mild. 10000 is a good start.
-        if target_socket_count < 10000:
-             print(f"    [DoS] 🚀 AGGRESSIVE SCALING: Overriding sockets from {target_socket_count} to 10000")
-             target_socket_count = 10000
-
-    duration = int(scenario.config.get("duration", 60))
+        # USER REQUEST: Triple the count (30k)
+        if target_socket_count < 30000:
+             print(f"    [DoS] 🚀 AGGRESSIVE SCALING: Overriding sockets from {target_socket_count} to 30000")
+             target_socket_count = 30000
+        
+        # Force duration to 300s (5m) for real impact
+        duration = 300
+        print(f"    [DoS] ⏱️  AGGRESSIVE DURATION: Holding connections for {duration}s (Fixed)")
+    else:
+        duration = int(scenario.config.get("duration", 60))
     
     # Optimize Thread Count for fast ramp-up
     # We want roughly 50-100 sockets per thread max to ensure quick filling
     thread_count = max(10, target_socket_count // 50) 
-    if thread_count > 200: thread_count = 200 # Cap threads to avoid OS native thread issues
+    if thread_count > 500: thread_count = 500 # Cap threads to avoid OS native thread issues
     
     sockets_per_thread = target_socket_count // thread_count
     

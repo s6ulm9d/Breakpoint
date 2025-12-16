@@ -11,16 +11,25 @@ class ConsoleReporter:
         print("="*60)
         
         passed = [r for r in results if r.status in ["SECURE", "PASSED"]]
-        failed = [r for r in results if r.status not in ["SECURE", "PASSED"]]
+        vulnerable = [r for r in results if r.status == "VULNERABLE"]
+        skipped = [r for r in results if r.status == "SKIPPED"]
+        errors = [r for r in results if r.status == "ERROR"]
         
         print(f"Total Checks: {len(results)}")
-        print(f"PASSED: {Fore.GREEN}{len(passed)}{Style.RESET_ALL}")
-        print(f"FAILED: {Fore.RED}{len(failed)}{Style.RESET_ALL}")
+        print(f"PASSED:   {Fore.GREEN}{len(passed)}{Style.RESET_ALL}")
+        print(f"SKIPPED:  {Fore.YELLOW}{len(skipped)}{Style.RESET_ALL} (Rate Limited)")
+        print(f"ERRORS:   {Fore.RED}{len(errors)}{Style.RESET_ALL}")
+        print(f"FAILED:   {Fore.RED}{len(vulnerable)}{Style.RESET_ALL} (Critical Vulnerabilities)")
         
-        if failed:
+        if vulnerable:
             print("\n[!] CRITICAL FINDINGS:")
-            for f in failed:
-                print(f" - [{f.type}] {f.details}")
+            for f in vulnerable:
+                 # Clean details
+                 d = str(f.details)[:100].replace('\n', ' ')
+                 print(f" - {Fore.RED}[{f.type}]{Style.RESET_ALL} {d}...")
+        
+        if skipped:
+             print(f"\n{Fore.YELLOW}[!] NOTE: {len(skipped)} checks were skipped due to Rate Limiting (429/403).{Style.RESET_ALL}")
         
         print("="*60 + "\n")
 

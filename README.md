@@ -43,6 +43,7 @@ It includes **Force-Multipliers** like Forensic Logging and Financial Liability 
 - **Authentication**: JWT Forgery ("None" Alg), IDOR, Brute Force, Credential Stuffing.
 - **Web & Logic**: XSS, Prototype Pollution, CRLF Injection, Race Conditions, OTP Reuse.
 - **CVE Classics**: Log4Shell, Spring4Shell, Struts2 RCE.
+- **RSC Flight**: Trust Boundary Violation, Server Action Forgery, Async Context Bleed, Framework SSRF. [Details](RSC_FEATURES.md)
 
 ### 2. Enterprise audit Features
 - **Forensic Chain-of-Custody**: Immutable, cryptographically signed audit logs (`audit_UUID.log`).

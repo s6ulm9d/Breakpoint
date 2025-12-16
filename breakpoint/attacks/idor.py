@@ -25,33 +25,15 @@ def run_idor_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
     # 1. Access a "known good" ID (optional, if owned_id provided)
     # 2. Iterate others. If 200 OK and content differs -> Potential IDOR.
     
-    successful_accesses = [r for r in results if r["status"] == 200]
-    
-    # Heuristic: If we accessed more than 1 distinct object, report IDOR risk.
-    # (In real prod, public endpoints exist, but for 'BREAKPOINT' typically we target private stuff)
-    
-    risk = len(successful_accesses) > 1
-    
-    details = []
-    leaked_data = [] # Capture what we saw
-    
-    if risk:
-        ids = [r['id'] for r in successful_accesses]
-        details.append(f"Accessible IDs found: {ids}. Ensure these are not sensitive/private.")
+    # Aggressive Mode: Use a wider, more dangerous range of IDs
+    aggressive = scenario.config.get('aggressive', False)
+    if aggressive:
+        # Fuzz boundary conditions and known admin IDs
+        extras = ["0", "-1", "9999", "999999", "admin", "root", "test"]
+        # Basic numeric iteration around the target param if it looks numeric
+        # Assuming we don't know the exact current ID, we just spray.
+        id_range.extend(extras)
         
-        # Grab snippet from first couple of successes to prove data access
-        # We need to re-fetch or if we stored it? We only stored len.
-        # Let's just trust that re-fetching is fine or we should have stored it. 
-        # Modifying the loop above to store snippet would be better, but let's just 
-        # add a targeted fetch here or just instruct user. 
-        # actually, let's modify the loop above to store snippet!
-        # wait, I can't modify the loop above in this chunk easily without expanding scope.
-        # Let's just say "Data length: X" is the leak for now, OR better, let's just 
-        # assume we can't easily get the body retrospectively without storing it.
-        # Let's change the strategy: Update the loop to store 'snippet'.
-        pass 
-        
-    # Re-writing the previous loop block to store snippet
     results = []
     for val in id_range:
         actual_path = target_template.replace(f"{{{{{param}}}}}", str(val))
@@ -68,8 +50,29 @@ def run_idor_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
             "snippet": snippet
         })
         
-    successful_accesses = [r for r in results if r["status"] == 200]
-    risk = len(successful_accesses) > 1
+    # HEURISTIC IDOR VERIFICATION
+    # 1. Reject if response is HTML but we expect API data (SPA Fallback)
+    #    (Simple check: if starts with <!DOCTYPE html> or <html)
+    successful_accesses = [
+        r for r in results 
+        if r["status"] == 200 
+        and "error" not in r["snippet"].lower() 
+        and "<!doctype html>" not in r["snippet"].lower()
+    ]
+
+    # 2. Reject if all responses are identical length (Static Page/Error)
+    #    Real IDOR returns different user data => different lengths.
+    if successful_accesses:
+        lengths = [r["len"] for r in successful_accesses]
+        # Calculate variance or just check if they are all within 5 bytes?
+        # If max(len) - min(len) < 5, probably static content.
+        if max(lengths) - min(lengths) < 5 and len(successful_accesses) > 1:
+            successful_accesses = [] # Mark as false positive
+
+    risk = len(successful_accesses) > 0 # Was > 1, but > 0 is correct if we filtered carefully
+    
+    details = []
+    leaked_data = []
     
     if risk:
         ids = [r['id'] for r in successful_accesses]

