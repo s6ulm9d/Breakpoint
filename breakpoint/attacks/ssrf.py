@@ -26,6 +26,18 @@ def run_ssrf_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
             resp = client.send(scenario.method, scenario.target, json_body=body)
             
             if resp.status_code == 0: continue
+            
+            # AGGRESSIVE: Internal Port Scan (Redis/MySQL/Admin)
+            if scenario.config.get("aggressive"):
+                ports = [6379, 3306, 8080, 8000, 9200, 27017]
+                for port in ports:
+                    try:
+                        p_url = f"http://127.0.0.1:{port}"
+                        body[field] = p_url
+                        r_scan = client.send(scenario.method, scenario.target, json_body=body, timeout=1.0)
+                        if r_scan.status_code != resp.status_code and r_scan.status_code != 0:
+                             issues.append(f"SSRF Port Scan: Port {port} responded differently ({r_scan.status_code})")
+                    except: pass
 
             suspicious = False
             reasons = []
@@ -56,9 +68,29 @@ def run_ssrf_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
             if suspicious:
                 issues.append(f"[CRITICAL] SSRF in '{field}': {', '.join(reasons)}")
 
+    # Confidence Logic
+    confidence = "LOW"
+    if issues:
+        # Check reasons
+        # Metadata/File Leak = CONFIRMED
+        # Banner = HIGH (could be a honeypot or weird proxy)
+        # Timing (future) = MEDIUM
+        
+        all_reasons = " ".join([i for sub in [x.split(': ')[1] for x in issues] for x in sub]) if issues else ""
+        # Actually easier to check the issue text strings added previously
+        
+        is_leak = any(x in str(issues) for x in ["Metadata Leak", "File Leak"])
+        if is_leak:
+             confidence = "CONFIRMED"
+        elif "Banner" in str(issues):
+             confidence = "HIGH"
+        else:
+             confidence = "MEDIUM"
+
     return {
         "scenario_id": scenario.id,
         "attack_type": "ssrf",
         "passed": len(issues) == 0,
+        "confidence": confidence if issues else "LOW",
         "details": {"issues": issues, "leaked_data": leaked_data}
     }

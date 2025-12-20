@@ -2,10 +2,15 @@ import time
 import requests
 import random
 import threading
+import os
 from typing import Optional, Dict, Any, Union, List
 from dataclasses import dataclass, field
 from colorama import Fore, Style
 import uuid
+
+# Suppress SSL warnings
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
+requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 @dataclass
 class ResponseWrapper:
@@ -26,78 +31,113 @@ class ResponseWrapper:
 
 # Modern User Agents to bypass basic bot filters
 USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:123.0) Gecko/20100101 Firefox/123.0",
+    "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36",
 ]
 
 class HttpClient:
-    def __init__(self, base_url: str, timeout: float = 30.0, verbose: bool = False, proxies: Optional[List[str]] = None, headers: Optional[Dict[str, str]] = None):
+    _proxies: List[str] = []
+    _proxy_lock = threading.Lock()
+    _proxies_loaded = False
+
+    def __init__(self, base_url: str, timeout: float = 30.0, verbose: bool = False, headers: Optional[Dict[str, str]] = None):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.verbose = verbose
         self.global_headers = headers or {}
         self.session = requests.Session()
         
-        # PROXY MANAGEMENT
-        self.proxies = proxies or []
-        self.proxy_lock = threading.Lock()
-        
-        # OPTIMIZATION: High-Concurrency but Frequent Rotation
-        # Reduced pool size significantly to prevent socket choking on unstable proxies
-        adapter = requests.adapters.HTTPAdapter(pool_connections=50, pool_maxsize=50)
+        # High-Concurrency Adapter
+        adapter = requests.adapters.HTTPAdapter(pool_connections=1000, pool_maxsize=1000)
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
         
         # Unique Canary for Log Verification
         self.canary_id = str(uuid.uuid4())[:8]
+        self._dead_proxies = set()
         
-        self.session.headers.update({
+        # Load proxies once
+        if not HttpClient._proxies_loaded:
+            self._load_proxies()
+
+        if self.verbose:
+            mode = "ELITE PROXY" if HttpClient._proxies else "DIRECT"
+            print(f"[*] HttpClient initialized ({mode} MODE). Traffic Tag ID: {self.canary_id}")
+
+    def _load_proxies(self):
+        with HttpClient._proxy_lock:
+            if HttpClient._proxies_loaded: return
+            
+            # Search in common locations
+            root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            paths = [
+                "proxies.txt", 
+                "proxies.txt.bak",
+                os.path.join(root, "proxies.txt"),
+                "breakpoint/proxies.txt", 
+                "data/proxies.txt",
+                "C:\\Users\\soulmad\\projects\\break-point\\breakpoint\\proxies.txt"
+            ]
+
+            for path in paths:
+                if os.path.exists(path):
+                    try:
+                        with open(path, "r") as f:
+                            lines = [line.strip() for line in f if line.strip()]
+                            HttpClient._proxies = lines
+                            if self.verbose: print(f"[+] Loaded {len(HttpClient._proxies)} proxies from {path}")
+                            break
+                    except Exception as e:
+                        if self.verbose: print(f"[!] Error loading proxies: {e}")
+            
+            HttpClient._proxies_loaded = True
+
+    def _get_bypass_headers(self) -> Dict[str, str]:
+        """Generates evasive and WAF bypass headers."""
+        ip = f"{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}"
+        
+        # Extensive IP Spoofing pool
+        spoof_headers = {
+            "X-Forwarded-For": f"{ip}, {random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}",
+            "X-Real-IP": ip,
+            "Client-IP": ip,
+            "CF-Connecting-IP": ip,
+            "True-Client-IP": ip,
+            "X-Client-IP": ip,
+            "X-Remote-IP": ip,
+            "X-Remote-Addr": ip,
+            "X-Originating-IP": ip,
+            "Forwarded": f"for={ip};proto=https",
+            "X-ProxyUser-Ip": ip,
+            "Via": f"1.1 {random.choice(['google', 'bing', 'chrome-compression-proxy'])}",
+            # "From": "googlebot@google.com",  # Removed - Do not claim to be googlebot if we aren't, some WAFs verify this via RDNS
+        }
+        
+        # Randomize which ones we send to avoid static fingerprint
+        subset = dict(random.sample(list(spoof_headers.items()), k=random.randint(3, 7)))
+        
+        # Core Evasion - LOOK LIKE A REAL BROWSER
+        subset.update({
             "User-Agent": random.choice(USER_AGENTS),
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Connection": "keep-alive",
+            # REMOVED X-Breakpoint-Tag (Dead giveaway)
+            # REMOVED X-Request-Id (Too API-like)
+            "DNT": "1",
+            "Sec-Ch-Ua-Mobile": "?0",
             "Upgrade-Insecure-Requests": "1",
             "Sec-Fetch-Dest": "document",
             "Sec-Fetch-Mode": "navigate",
             "Sec-Fetch-Site": "none",
-            "Pragma": "no-cache",
-            "Cache-Control": "no-cache",
-            "X-Breakpoint-ID": self.canary_id
+            "Sec-Fetch-User": "?1",
+            "Accept-Encoding": "gzip, deflate, br", # Vital for looking like a browser
         })
         
-        if self.verbose:
-            proxy_msg = f" | Proxies: {len(self.proxies)} loaded" if self.proxies else " | No Proxies (Direct)"
-            print(f"[*] HttpClient initialized. Traffic Tag: X-Breakpoint-ID: {self.canary_id}{proxy_msg}")
-
-
-    def _jitter(self):
-        """Adds a tiny random delay to avoid machine-like timing fingerprints"""
-        # Reduced for aggressive speed requirements
-        time.sleep(random.uniform(0.01, 0.05))
-
-    def _ip_spoof(self) -> Dict[str, str]:
-        """Generates random fake IP headers to bypass simple rate limiters."""
-        fake_ip = f"{random.randint(1,255)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}"
-        
-        # WEAPONIZED HEADER LIST: Try every known IP forwarding header
-        return {
-            "X-Forwarded-For": fake_ip,
-            "X-Real-IP": fake_ip,
-            "Client-IP": fake_ip,
-            "X-Originating-IP": fake_ip,
-            "X-Remote-IP": fake_ip,
-            "X-Client-IP": fake_ip,
-            "True-Client-IP": fake_ip,
-            "X-Forwarded-Host": fake_ip,
-            "X-Host": fake_ip,
-            "X-Custom-IP-Authorization": fake_ip,
-            "Forwarded": f"for={fake_ip};proto=http",
-            "Via": f"1.1 {fake_ip}",
-            # Rotate User-Agent for identity protection
-            "User-Agent": random.choice(USER_AGENTS)
-        }
+        return subset
 
     def send(self, method: str, target: str, *, 
              headers: Optional[Dict[str, str]] = None, 
@@ -108,157 +148,124 @@ class HttpClient:
         
         url = target if target.startswith("http") else f"{self.base_url}/{target.lstrip('/')}"
         
-        # 1. CACHE BUSTING (Critical for logging)
-        if "?" in url:
-            url += f"&_cb={random.randint(100000, 999999)}"
-        else:
-            url += f"?_cb={random.randint(100000, 999999)}"
+        # Cache Busting (Shuffled query param name)
+        cb_key = random.choice(["_v", "cache", "ref", "ts", "rnd", "id"])
+        cb_val = random.randint(1000000, 9999999)
+        # Avoid appending if it looks like a static asset to avoid 404s
+        if not any(url.endswith(ext) for ext in [".js", ".css", ".png", ".jpg"]):
+             if "?" in url: url += f"&{cb_key}={cb_val}"
+             else: url += f"?{cb_key}={cb_val}"
 
-        # REALISTIC REFERER POOL
+        # Standard headers
+        base_headers = {
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9,en;q=0.8",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+        }
+        
+        # Referers - Extended
         REFERERS = [
-            "https://www.google.com/",
-            "https://www.bing.com/",
-            "https://search.yahoo.com/",
-            "https://duckduckgo.com/",
-            "https://www.facebook.com/",
-            "https://twitter.com/",
-            "https://www.linkedin.com/",
+            "https://www.google.com/", "https://www.bing.com/", "https://duckduckgo.com/", 
+            "https://twitter.com/", "https://www.reddit.com/", "https://t.co/",
+            "https://www.linkedin.com/", "https://www.facebook.com/", "https://instagram.com/",
             self.base_url
         ]
 
-        # 2. REALISTIC REFERER/ORIGIN
-        if not headers: headers = {}
-        if "Referer" not in headers:
-            headers["Referer"] = random.choice(REFERERS)
-        if "Origin" not in headers and method.upper() in ["POST", "PUT", "PATCH"]:
-            headers["Origin"] = self.base_url
+        # Retry Loop
+        max_retries = 10 # INCREASED: WAF Bypass Strategy - Persistence
+        errors = []
         
-        # Aggressive Retry Limit for Unstable Public Proxies
-        # We NEVER give up on the pool. Even if they are shaky.
-        max_retries = 200 
-        backoff = 0.5 
-
-        for attempt in range(max_retries + 1):
+        for attempt in range(max_retries):
+            # 1. Build Headers
+            req_headers = base_headers.copy()
+            req_headers.update(self._get_bypass_headers())
             
-            # ROTATION LOGIC: Generate NEW Identity per attempt
-            # 1. IP Spoofing
-            spoof_headers = self._ip_spoof()
+            if "Referer" not in (headers or {}):
+                req_headers["Referer"] = random.choice(REFERERS)
             
-            # 2. Proxy Selection
-            request_proxies = None
-            if self.proxies:
-                try:
-                    proxy_url = random.choice(self.proxies)
-                    request_proxies = {"http": proxy_url, "https": proxy_url}
-                except IndexError:
-                    pass
+            if self.global_headers: req_headers.update(self.global_headers)
+            if headers: req_headers.update(headers)
             
-            # 3. Headers Merging
-            request_headers = spoof_headers.copy()
-            if self.global_headers:
-                 request_headers.update(self.global_headers)
-            if headers:
-                request_headers.update(headers)
-            
-            request_headers["Connection"] = "close"
-
-            # VERBOSE LOG (Only show on first attempt or if verbose enough to avoid spam)
-            if self.verbose and attempt == 0:
-                payload_preview = ""
-                if json_body: payload_preview = f"| JSON: {str(json_body)[:50]}..."
-                if form_body: payload_preview = f"| DATA: {str(form_body)[:50]}..."
-                if params: payload_preview = f"| QUERY: {str(params)}"
+            # 2. Smart Proxy Rotation (Real IP Usage)
+            proxy_url = None
+            # Bypass proxies for localhost to avoid 403s from public proxies trying to hit local addresses
+            if "localhost" in self.base_url or "127.0.0.1" in self.base_url:
+                 if self.verbose and attempt == 0: 
+                     print(f"{Fore.CYAN}[*] Localhost detected. Bypassing proxies for direct connection.{Style.RESET_ALL}")
+                 proxies = None
+            elif HttpClient._proxies:
+                # Filter out known dead proxies for this session
+                valid_proxies = [p for p in HttpClient._proxies if p not in self._dead_proxies]
                 
-                spoofed_ip = request_headers.get("X-Forwarded-For", "Unknown")
-                proxy_log = f" [VIA PROXY: {request_proxies['http']}]" if request_proxies else " [DIRECT]"
-                print(f"{Fore.GREEN}[TRAFFIC] {method} {url} [IP: {spoofed_ip}]{proxy_log} {payload_preview}{Style.RESET_ALL}")
+                # If we exhausted valid proxies, reset the pool (maybe transient network issues)
+                if not valid_proxies:
+                    if self.verbose: print(f"{Fore.MAGENTA}[*] Proxy pool exhausted/cleaned. Recycling all {len(HttpClient._proxies)} proxies.{Style.RESET_ALL}")
+                    self._dead_proxies.clear()
+                    valid_proxies = list(HttpClient._proxies)
 
-            start_time = time.time()
+                if valid_proxies:
+                    proxy_url = random.choice(valid_proxies)
+                    proxies = {"http": proxy_url, "https": proxy_url}
+
+            # 3. Request
             try:
-                # Optimized Timeout for Proxies
-                req_timeout = timeout or self.timeout
-                if isinstance(req_timeout, (int, float)):
-                    # (Connect Timeout, Read Timeout)
-                    # Connect fast (3s) to discard dead proxies quickly.
-                    # Read slow (20s) to allow WAF/Server to respond.
-                    req_timeout = (3.0, 20.0)
-
+                # Dynamic Read Timeout - Fail Fast on Connect (3s), Wait for Read (15s)
+                # If using a proxy, give it slightly more connect time but still fail fast to rotate
+                connect_timeout = 4.0 if proxy_url else 3.0
+                req_timeout = timeout if timeout is not None else (connect_timeout, 15.0) 
+                
                 resp = self.session.request(
                     method=method.upper(),
                     url=url,
-                    headers=request_headers,
+                    headers=req_headers,
                     params=params,
                     json=json_body,
                     data=form_body,
-                    proxies=request_proxies,
                     timeout=req_timeout,
-                    verify=False
+                    proxies=proxies,
+                    verify=False,
+                    allow_redirects=True
                 )
-                elapsed = (time.time() - start_time) * 1000.0
                 
-                # RETRY LOGIC FOR 429 (Rate Limit) vs 403 (Forbidden)
-                if resp.status_code == 429 and attempt < max_retries:
+                # Check for rate limiting or WAF block
+                if resp.status_code in [403, 429]:
                     if self.verbose: 
-                        print(f"{Fore.YELLOW}[!] 429 Rate Limit. Rotating Identity & Retrying...{Style.RESET_ALL}")
-                    time.sleep(backoff)
-                    backoff = min(backoff * 1.5, 2.0) 
-                    continue 
+                        reason = "WAF Block" if resp.status_code == 403 else "Rate Limit"
+                        if attempt % 5 == 0:
+                            print(f"{Fore.YELLOW}[!] {reason} ({resp.status_code}). Retry {attempt+1}/{max_retries}...{Style.RESET_ALL}")
+                    
+                    # Minimal Backoff for Speed but Randomized to avoid Pattern Detection
+                    time.sleep(random.uniform(0.5, 1.5))
+                    continue
 
-                # For 403 (Forbidden): 
-                if resp.status_code == 403:
-                     # Only keep rotating if we haven't tried too many times (e.g. 50)
-                     if attempt < 50:
-                         if self.verbose:
-                             print(f"{Fore.YELLOW}[!] 403 Forbidden (Proxy/IP Blocked). Rotating...{Style.RESET_ALL}")
-                         time.sleep(0.2)
-                         continue # FORCE ROTATION
-                     else:
-                         pass 
-
-                # Best-effort JSON parsing
+                # Parse Success
                 json_data = None
-                try:
-                    json_data = resp.json()
-                except ValueError:
-                    pass
+                try: json_data = resp.json()
+                except: pass
 
                 if self.verbose:
-                    status_color = Fore.GREEN if resp.status_code < 400 else Fore.YELLOW if resp.status_code < 500 else Fore.RED
-                    if resp.status_code != 429: 
-                        display_url = url.split('?')[0] # Shorten URL
-                        print(f"{status_color}[<] {resp.status_code} {resp.reason} ({elapsed:.0f}ms) | {display_url}{Style.RESET_ALL}")
+                    sc = resp.status_code
+                    color = Fore.GREEN if sc < 400 else Fore.YELLOW if sc < 500 else Fore.RED
+                    print(f"{color}[<] {sc} {resp.reason} ({resp.elapsed.total_seconds()*1000:.0f}ms) | {url.split('?')[0]}{Style.RESET_ALL}")
 
                 return ResponseWrapper(
                     status_code=resp.status_code, 
                     headers=dict(resp.headers),
                     text=resp.text,
-                    elapsed_ms=elapsed,
+                    elapsed_ms=resp.elapsed.total_seconds()*1000,
                     url=str(resp.url),
                     json_data=json_data
                 )
 
-            except requests.RequestException as e:
-                # MARK PROXY AS DEAD (SILENTLY) - BUT DO NOT REMOVE FROM POOL
-                # Removing them depletes the pool and causes fallback to local IP.
-                # Just ignore and retry another random one.
-                # if request_proxies:
-                #    bad_proxy = request_proxies.get("http")
-                #    with self.proxy_lock:
-                #        if bad_proxy in self.proxies:
-                #            self.proxies.remove(bad_proxy)
-                
-                # If we have retries left, continue
-                if attempt < max_retries:
-                    # Very fast retry
-                    continue
-                
-                # STOP. NO DIRECT FALLBACK.
-                # If we exhausted 200 retries and couldn't connect, we FAIL.
-                # We do NOT compromise the user's IP address.
-                raise ConnectionError(f"Max retries exited. All proxies failed.")
-
             except Exception as e:
-                # Catch-all for other errors to prevent crashes
-                if attempt < max_retries:
-                    continue
-                raise ConnectionError(f"Max retries exited. Error: {e}")
+                # Mark proxy as dead if it failed connection
+                if proxy_url:
+                    self._dead_proxies.add(proxy_url)
+                    # if self.verbose: print(f"{Fore.MAGENTA}[!] Proxy dead: {proxy_url}{Style.RESET_ALL}")
+
+                errors.append(str(e))
+                if attempt < max_retries - 1:
+                    continue # No sleep, just retry
+        
+        raise ConnectionError(f"Network Blocked: Max retries exited. Firewall or ISP blocking traffic. Last error: {errors[-1] if errors else 'Unknown'}")

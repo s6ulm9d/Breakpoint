@@ -2,6 +2,16 @@
 
 All notable changes to the "BREAKPOINT" engine will be documented in this file.
 
+## [2.6.0-ELITE] - 2025-12-19
+### 🌟 New Features
+- **Resource Exhaustion Attacks**: Added dedicated modules for XML Bomb (Billion Laughs), ReDoS (Regular Expression DoS), and JSON recursion depth attacks to identify crash vulnerabilities.
+- **Data Integrity Checks**: New `malformed_json` module to test parser robustness against truncated or invalid JSON inputs.
+- **Traffic Simulation**: Added `traffic_spike` module to simulate load spikes and measure performance degradation (p50/p95 latencies).
+
+### 🛠️ Improvements
+- **Engine Dispatcher**: Fully integrated all new attack modules into the core execution engine.
+- **Scenarios**: Updated `default_scenarios.yaml` with the latest elite attack vectors.
+
 ## [2.5.2] - 2025-12-12
 ### 🌟 New Features
 - **Proof of Exploitation**: All attack modules (SQLi, XSS, XXE, LFI, IDOR, etc.) now capture and report **actual leaked data** (e.g., config snippets, file contents, reflection contexts) to definitively verify vulnerabilities.

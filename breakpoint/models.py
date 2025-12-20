@@ -16,3 +16,4 @@ class CheckResult:
     status: str # "SECURE" | "VULNERABLE" | "INCONCLUSIVE" | "ERROR"
     severity: Optional[str]
     details: str
+    confidence: Optional[str] = "UNKNOWN" # CONFIRMED | HIGH | MEDIUM | LOW | TENTATIVE

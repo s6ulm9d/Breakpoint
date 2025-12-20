@@ -140,13 +140,13 @@
   type: race_condition
   target: /
   method: POST
-  config: {threads: 10}
+  config: {threads: 5000}
 
 - id: slowloris_dos
   type: dos_slowloris
   target: /
   method: GET
-  config: {sockets: 200, duration: 10}
+  config: {sockets: 5000, duration: 60}
 
 - id: cache_poison_check
   type: cache_deception
@@ -160,6 +160,18 @@
   target: /api/verify
   method: POST
   config: {otp: "123456"}
+
+- id: file_inclusion_polyglot
+  type: lfi
+  target: /
+  method: GET
+  config: {fields: [page, file], aggressive: true}
+
+- id: exotic_injection_template
+  type: ssti
+  target: /
+  method: GET
+  config: {fields: [username, query], aggressive: true}
 
 - id: advanced_dos_checks
   type: advanced_dos
@@ -256,6 +268,7 @@
   type: graphql_introspection
   target: /graphql
   method: POST
+  config: {aggressive: true}
 
 - id: graphql_batching_dos
   type: graphql_batching
@@ -281,3 +294,86 @@
   type: rsc_flight_deserialization_abuse
   target: /
   method: POST
+
+# 9. NEW ELITE ATTACKS (v2.6.0)
+- id: xml_bomb_attack
+  type: xml_bomb
+  target: /api/xml
+  method: POST
+
+- id: redos_validation_attack
+  type: redos
+  target: /api/validate
+  method: POST
+  config: {fields: [email, username, search]}
+
+- id: json_bomb_attack
+  type: json_bomb
+  target: /api/json
+  method: POST
+
+- id: malformed_json_check
+  type: malformed_json
+  target: /api/json
+  method: POST
+
+- id: traffic_spike_load
+  type: traffic_spike
+  target: /
+  method: GET
+  config: {requests: 10000, concurrency: 50}
+
+- id: password_length_dos
+  type: password_length
+  target: /login
+  method: POST
+  config: {password_field: "password", lengths: [0, 100, 1000, 10000, 100000]}
+
+- id: auth_replay_check
+  type: replay_simple
+  target: /api/protected
+  method: POST
+  config: {body: {action: "test"}, repeats: 5000}
+
+# 10. DESTRUCTIVE ATTACKS (v2.8.0-DESTRUCTIVE)
+- id: dos_extreme_annihilation
+  type: dos_extreme
+  target: /
+  method: GET
+  config: {sockets: 5000, duration: 60, threads: 100, aggressive: true}
+
+- id: rce_reverse_shell_attempt
+  type: rce
+  target: /
+  method: POST 
+  config: {fields: [cmd, exec, query], aggressive: true}
+
+- id: blind_sqli_destructive
+  type: sql_injection
+  target: /
+  method: GET
+  config: {fields: [id, user, q], aggressive: true}
+
+- id: ssrf_intranet_port_scan
+  type: ssrf
+  target: /api/webhook
+  method: POST
+  config: {fields: [url], aggressive: true}
+
+- id: log4shell_recursive_delete
+  type: log4shell
+  target: /
+  method: GET
+  config: {aggressive: true}
+
+- id: file_upload_shell
+  type: rce
+  target: /upload
+  method: POST
+  config: {fields: [file], aggressive: true} # Implicit via RCE module logic
+
+- id: deserialization_rce
+  type: insecure_deserialization
+  target: /api/data
+  method: POST
+  config: {fields: [data, state], aggressive: true}

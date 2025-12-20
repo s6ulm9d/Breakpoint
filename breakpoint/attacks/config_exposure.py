@@ -8,7 +8,9 @@ def run_debug_exposure(client: HttpClient, scenario: SimpleScenario) -> Dict[str
     """
     targets = [
         "/admin", "/admin/dashboard", "/debug", "/info", "/status", 
-        "/actuator", "/actuator/health", "/metrics", "/.env", "/config.json"
+        "/actuator", "/actuator/health", "/metrics", "/.env", "/config.json",
+        "/server-status", "/console", "/web-console", "/dashboard",
+        "/phpmyadmin", "/wp-admin", "/test.php", "/db_backup.sql"
     ]
     
     issues = []

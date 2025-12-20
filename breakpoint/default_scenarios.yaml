@@ -266,7 +266,47 @@
   target: /.DS_Store
   method: GET
 
-# --- 8. DENIAL OF SERVICE (EXTREME) ---
+# --- 8. RESOURCE EXHAUSTION (CRASH) ---
+- id: xml_bomb_attack
+  type: xml_bomb
+  target: /api/xml
+  method: POST
+
+- id: redos_validation_attack
+  type: redos
+  target: /api/validate
+  method: POST
+  config: {fields: [email, username, search]}
+
+- id: json_bomb_attack
+  type: json_bomb
+  target: /api/json
+  method: POST
+
+- id: malformed_json_check
+  type: malformed_json
+  target: /api/json
+  method: POST
+
+- id: traffic_spike_load
+  type: traffic_spike
+  target: /
+  method: GET
+  config: {requests: 100, concurrency: 10}
+
+- id: password_length_dos
+  type: password_length
+  target: /login
+  method: POST
+  config: {password_field: "password", lengths: [0, 50, 500, 5000]}
+
+- id: auth_replay_check
+  type: replay_simple
+  target: /api/protected
+  method: POST
+  config: {body: {action: "test"}, repeats: 3}
+
+# --- 9. DENIAL OF SERVICE (EXTREME) ---
 - id: slowloris_dos
   type: slowloris
   target: /

@@ -88,7 +88,7 @@ def main():
                      result = subprocess.run(["git", "pull"], capture_output=True, text=True)
                      if result.returncode == 0:
                          if "Already up to date" in result.stdout:
-                             print(f"[+] You are already up to date (v2.5.1-ELITE).")
+                             print(f"[+] You are already up to date (v2.6.0-ELITE).")
                          else:
                              print(f"[+] Successfully updated to latest version.")
                              print(f"    {result.stdout.strip()}")
@@ -108,8 +108,8 @@ def main():
                     data = resp.json()
                     latest = data.get("tag_name", "Unknown")
                     print(f"[+] Latest Version: {latest}")
-                    print(f"[+] Current Version: 2.5.1-ELITE")
-                    if latest != "Unknown" and latest != "2.5.1-ELITE":
+                    print(f"[+] Current Version: 2.6.0-ELITE")
+                    if latest != "Unknown" and latest != "2.6.0-ELITE":
                          print(f"[!] Update Available! Download at: {data.get('html_url')}")
                     else:
                          print("[+] You are up to date.")
@@ -146,7 +146,7 @@ def main():
         formatter_class=argparse.RawTextHelpFormatter
     )
     
-    parser.add_argument("-v", "--version", action="version", version="BREAKPOINT v2.5.1-ELITE")
+    parser.add_argument("-v", "--version", action="version", version="BREAKPOINT v2.6.0-ELITE")
     parser.add_argument("--update", action="store_true", help="Update the tool in-place")
     
     target_group = parser.add_argument_group("Targeting")
@@ -165,7 +165,6 @@ def main():
     conf_group.add_argument("--verbose", action="store_true")
     conf_group.add_argument("--continuous", action="store_true")
     conf_group.add_argument("--interval", type=int, default=0)
-    conf_group.add_argument("--proxies", help="Path to file containing proxies (http[s]://IP:PORT)")
     conf_group.add_argument("--headers", action="append", help="Global headers (Key:Value) for auth/customization")
     
     # Catch known commands to prevent error
@@ -190,54 +189,6 @@ def main():
     if args.concurrency is None:
         # SUPERCHARGE DEFAULTS for Modern Local Machines
         args.concurrency = 200 if args.aggressive else 50
-
-    # AUTO-DETECT proxies.txt if available and not specified
-    if not args.proxies and os.path.exists("proxies.txt"):
-        print("[*] Found 'proxies.txt' in current directory. Loading...")
-        args.proxies = "proxies.txt"
-
-    # Proxy Loading
-    proxies = []
-    if args.proxies:
-        if os.path.exists(args.proxies):
-            with open(args.proxies, 'r', encoding='utf-8', errors='ignore') as f:
-                proxies = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
-            print(f"[*] Loaded {len(proxies)} proxies from {args.proxies}")
-            
-    # AUTO-FETCH if file was empty OR if user didn't provide file but wants aggressive mode
-    # "Real IP Rotation" requires Real Proxies.
-    if len(proxies) == 0 and (args.proxies or args.aggressive):
-        print(f"[!] No manual proxies found. Triggering AUTO-FETCH for Aggressive Rotation...")
-        try:
-            from breakpoint.proxy_fetcher import fetch_public_proxies
-            proxies = fetch_public_proxies(limit=2000) # Fetch up to 2000 for rotation
-            
-            # Persist for user inspection
-            try:
-                with open("proxies.txt", "w", encoding='utf-8') as f:
-                    f.write("\n".join(proxies))
-                print(f"[+] Saved {len(proxies)} fetched proxies to 'proxies.txt'")
-            except: pass
-            
-        except Exception as e:
-            print(f"[-] Auto-fetch failed: {e}") 
-    
-    # CRITICAL FIX: PREVENT REMOTE PROXIES FROM ATTACKING LOCALHOST
-    # Remote proxies cannot see your 127.0.0.1. Traffic would go to the PROXY'S localhost.
-    if "localhost" in args.base_url or "127.0.0.1" in args.base_url or "0.0.0.0" in args.base_url:
-        if len(proxies) > 0:
-            print(f"\n{Fore.RED}" + "!"*60)
-            print(" [!] LOCALHOST DETECTED with REMOTE PROXIES")
-            print("     Remote proxies cannot forward traffic to your local machine.")
-            print("     Using them against localhost results in 'Faked' responses (attacking the proxy itself).")
-            print("     -> DISABLING TCP PROXIES for this run.")
-            print("     -> ACTIVATING LAYER-7 IP ROTATION (Header Spoofing) to bypass Rate Limits.")
-            print("!"*60 + f"{Style.RESET_ALL}\n")
-            proxies = [] # Force disable to ensure connection works
-
-    if len(proxies) == 0 and args.aggressive and "localhost" not in args.base_url:
-         print(f"{Fore.YELLOW}[!] WARNING: Aggressive Mode enabled but NO PROXIES available.")
-         print(f"    Your real IP will be banned. We strongly recommend providing a proxy list.{Style.RESET_ALL}")
 
     # Header Loading
     global_headers = {}
@@ -322,7 +273,7 @@ def main():
             # Safety lock handled manually above by strict prompt logic
             pass
 
-    engine = Engine(base_url=args.base_url, forensic_log=logger, verbose=args.verbose, proxies=proxies, headers=global_headers)
+    engine = Engine(base_url=args.base_url, forensic_log=logger, verbose=args.verbose, headers=global_headers)
     
     if args.aggressive:
          for s in scenarios:

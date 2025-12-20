@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="breakpoint",
-    version="2.5.2",
+    version="2.9.0-TOTAL-ANNIHILATION",
     description="BREAKPOINT: Weaponized Resilience Engine",
     author="soulmad",
     packages=find_packages(),
