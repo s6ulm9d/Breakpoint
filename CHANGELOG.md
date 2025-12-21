@@ -2,7 +2,7 @@
 
 All notable changes to the "BREAKPOINT" engine will be documented in this file.
 
-## [2.6.0-ELITE] - 2025-12-19
+## [2.6.0-ELITE] - 2025-12-21
 ### 🌟 New Features
 - **Resource Exhaustion Attacks**: Added dedicated modules for XML Bomb (Billion Laughs), ReDoS (Regular Expression DoS), and JSON recursion depth attacks to identify crash vulnerabilities.
 - **Data Integrity Checks**: New `malformed_json` module to test parser robustness against truncated or invalid JSON inputs.
