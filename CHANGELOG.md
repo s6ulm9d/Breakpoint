@@ -2,6 +2,10 @@
 
 All notable changes to the "BREAKPOINT" engine will be documented in this file.
 
+## [2.6.1-ELITE] - 2025-12-21
+### 🐛 Bug Fixes
+- **Scenario loading**: Fixed a critical YAML syntax error in the `omni_attack_all` scenario that caused the parser to abort early, resulting in only a subset of attacks running. All 60+ modules now execute correctly.
+
 ## [2.6.0-ELITE] - 2025-12-21
 ### 🌟 New Features
 - **Resource Exhaustion Attacks**: Added dedicated modules for XML Bomb (Billion Laughs), ReDoS (Regular Expression DoS), and JSON recursion depth attacks to identify crash vulnerabilities.

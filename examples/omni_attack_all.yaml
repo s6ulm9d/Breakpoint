@@ -49,8 +49,6 @@
   method: GET
   config: {fields: [file, path, doc]}
 
-  target: /
-  method: GET
 
 - id: rsc_framework_ssrf
   type: rsc_ssr_ssrf
