@@ -2,6 +2,10 @@
 
 All notable changes to the "BREAKPOINT" engine will be documented in this file.
 
+## [2.6.2-ELITE] - 2025-12-21
+### 🐛 Bug Fixes
+- **Scenario integrity**: Manually overwrote `default_scenarios.yaml` to ensure the exact, complete "Omni Attack" suite is used as the default. This guarantees all 60+ attack vectors are included and properly formatted, resolving prior issues with incomplete execution.
+
 ## [2.6.1-ELITE] - 2025-12-21
 ### 🐛 Bug Fixes
 - **Scenario loading**: Fixed a critical YAML syntax error in the `omni_attack_all` scenario that caused the parser to abort early, resulting in only a subset of attacks running. All 60+ modules now execute correctly.
