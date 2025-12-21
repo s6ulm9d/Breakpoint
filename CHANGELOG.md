@@ -2,6 +2,10 @@
 
 All notable changes to the "BREAKPOINT" engine will be documented in this file.
 
+## [2.6.3-ELITE] - 2025-12-21
+### 🛠️ Fixes
+- **Configuration Persistence**: The installation process now explicitly bundles the omni-attack suite (`default_scenarios.yaml`) and correctly overwrites any stale user configuration files in `%APPDATA%` or `~/.config`. This ensures all 60+ attacks (instead of the legacy 22) are available immediately upon update for all users.
+
 ## [2.6.2-ELITE] - 2025-12-21
 ### 🐛 Bug Fixes
 - **Scenario integrity**: Manually overwrote `default_scenarios.yaml` to ensure the exact, complete "Omni Attack" suite is used as the default. This guarantees all 60+ attack vectors are included and properly formatted, resolving prior issues with incomplete execution.

@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="breakpoint",
-    version="2.6.2",
+    version="2.6.3",
     description="BREAKPOINT: Weaponized Resilience Engine",
     author="soulmad",
     packages=find_packages(),
@@ -17,4 +17,8 @@ setup(
         ],
     },
     python_requires=">=3.8",
+    include_package_data=True,
+    package_data={
+        "breakpoint": ["*.yaml"],
+    },
 )
