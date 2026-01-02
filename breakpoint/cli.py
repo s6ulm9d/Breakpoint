@@ -7,13 +7,15 @@ from breakpoint.metadata import get_metadata
 from breakpoint.safety_lock import SafetyLock
 from breakpoint.forensics import ForensicLogger
 from breakpoint.economics import FailureEconomics
-from breakpoint.licensing import get_license_status, save_license
+from breakpoint.licensing import check_access, get_denial_message, get_license_tier
 import argparse
 import sys
 import os
 import signal
 import shutil
 import datetime
+import subprocess
+import requests
 from colorama import Fore, Style, init
 
 def signal_handler(sig, frame):
@@ -55,89 +57,58 @@ def get_default_scenarios_path():
     else:
         return os.path.join(os.path.dirname(__file__), 'default_scenarios.yaml')
 
+def handle_update():
+    print("[*] Checking for updates...")
+    repo = "soulmad/breakpoint"
+    url = f"https://api.github.com/repos/{repo}/releases/latest"
+    try:
+        resp = requests.get(url, timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            latest = data.get("tag_name", "Unknown")
+            current = "2.6.3-ELITE"
+            print(f"[+] Latest Version: {latest}")
+            print(f"[+] Current Version: {current}")
+            if latest != current and latest != "Unknown":
+                print(f"[!] Update Available: {data.get('html_url')}")
+                if os.path.exists(".git"):
+                    print("[*] Git detected. Running pull...")
+                    subprocess.run(["git", "pull"])
+            else:
+                print("[+] You are up to date.")
+    except Exception as e:
+        print(f"[-] Update check failed: {e}")
+    sys.exit(0)
+
 def main():
     init(autoreset=True)
-    # 0. AUTO-INIT WORKSPACE (Silent)
-    app_data = get_app_data_dir()
-    config_path = os.path.join(app_data, "default_scenarios.yaml")
     
-    try:
-        src = get_default_scenarios_path()
-        if os.path.exists(src):
-            # FORCE UPDATE: Overwrite user config to ensure latest attacks are present
-            shutil.copy(src, config_path)
-    except Exception as e:
-        pass
-
-    # 1. ARGUMENT MAGIC
+    # 1. ROBUST SHORTHAND & COMMAND HANDLING
+    # This handles "update", "scan <url>", "<url>", and even common mistakes like "--http..."
     if len(sys.argv) > 1:
-        # Handle "update" command or "--update" flag
+        # Handle update first to avoid required args
         if sys.argv[1] == "update" or "--update" in sys.argv:
-             print("[*] Checking for updates...")
-             print("[*] Channel: https://github.com/soulmad/breakpoint/releases")
-             
-             # Attempt Git Pull first (In-Place Update)
-             is_git = os.path.exists(os.path.join(os.getcwd(), ".git"))
-             if is_git:
-                 print("[*] Git repository detected. Attempting in-place update...")
-                 try:
-                     import subprocess
-                     # Check connection first by fetching
-                     subprocess.check_call(["git", "fetch"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                     # Pull logic
-                     result = subprocess.run(["git", "pull"], capture_output=True, text=True)
-                     if result.returncode == 0:
-                         if "Already up to date" in result.stdout:
-                             print(f"[+] You are already up to date (v2.6.0-ELITE).")
-                         else:
-                             print(f"[+] Successfully updated to latest version.")
-                             print(f"    {result.stdout.strip()}")
-                     else:
-                         print(f"[-] Update failed: {result.stderr}")
-                 except Exception as e:
-                     print(f"[-] Auto-update failed: {e}")
-                 sys.exit(0)
+            handle_update()
 
-             # Fallback to API check for binary/non-git users
-             try:
-                 import requests
-                 repo = "soulmad/breakpoint"
-                 url = f"https://api.github.com/repos/{repo}/releases/latest"
-                 resp = requests.get(url, timeout=5)
-                 if resp.status_code == 200:
-                    data = resp.json()
-                    latest = data.get("tag_name", "Unknown")
-                    print(f"[+] Latest Version: {latest}")
-                    print(f"[+] Current Version: 2.6.0-ELITE")
-                    if latest != "Unknown" and latest != "2.6.0-ELITE":
-                         print(f"[!] Update Available! Download at: {data.get('html_url')}")
-                    else:
-                         print("[+] You are up to date.")
-             except Exception as e:
-                print(f"[!] Update Check Failed: {e}")
-             sys.exit(0)
-             
-        # Handle "register"
-        if sys.argv[1] == "register":
-             if len(sys.argv) < 3:
-                 print("Usage: breakpoint register <KEY>")
-                 sys.exit(1)
-             key = sys.argv[2]
-             try:
-                 save_license(key)
-                 print(f"[+] License Activated: {key}")
-             except Exception as e:
-                 print(f"[-] Activation Failed: {e}")
-             sys.exit(0)
-
-        # Handle "scan URL" or "URL"
-        if sys.argv[1].startswith("http"):
-            sys.argv.insert(1, "--base-url")
-        elif sys.argv[1] == "scan" and len(sys.argv) > 2:
-            sys.argv[1] = "--base-url"
-        elif sys.argv[1] == "scan":
-             # Just "scan" without url?
-             pass
+        # Iterate and fix shorthand/mistakes
+        for i in range(1, len(sys.argv)):
+            arg = sys.argv[i]
+            # Handle shorthand URL (starts with http or --http)
+            if arg.startswith("http") or arg.startswith("--http"):
+                # Clean up if they used --http...
+                clean_url = arg.lstrip('-')
+                # Only insert if --base-url isn't already there
+                if "--base-url" not in sys.argv:
+                    sys.argv[i] = clean_url
+                    sys.argv.insert(i, "--base-url")
+                else:
+                    sys.argv[i] = clean_url
+                break
+            
+            # Handle "scan <url>"
+            if arg == "scan" and i + 1 < len(sys.argv):
+                sys.argv[i] = "--base-url"
+                break
 
     signal.signal(signal.SIGINT, signal_handler)
     
@@ -146,11 +117,11 @@ def main():
         formatter_class=argparse.RawTextHelpFormatter
     )
     
-    parser.add_argument("-v", "--version", action="version", version="BREAKPOINT v2.6.0-ELITE")
-    parser.add_argument("--update", action="store_true", help="Update the tool in-place")
+    parser.add_argument("-v", "--version", action="version", version="BREAKPOINT v2.6.3-ELITE")
+    parser.add_argument("--update", action="store_true", help="Check for updates")
     
     target_group = parser.add_argument_group("Targeting")
-    target_group.add_argument("--base-url", help="Target URL (e.g., http://localhost:3000)")
+    target_group.add_argument("--base-url", help="Target URL")
     target_group.add_argument("--scenarios", help="Path to YAML scenarios file")
     target_group.add_argument("--force-live-fire", action="store_true", help="Bypass safety checks")
     
@@ -160,58 +131,60 @@ def main():
     out_group.add_argument("--sarif-report", help="Path to SARIF output")
     
     conf_group = parser.add_argument_group("Configuration")
+    conf_group.add_argument("--env", required=True, choices=["dev", "staging", "production"], help="Operational Environment (Mandatory)")
+    conf_group.add_argument("--simulation", action="store_true", help="Run in Impact Simulation mode")
     conf_group.add_argument("--concurrency", type=int, default=None)
     conf_group.add_argument("--aggressive", action="store_true")
     conf_group.add_argument("--verbose", action="store_true")
     conf_group.add_argument("--continuous", action="store_true")
     conf_group.add_argument("--interval", type=int, default=0)
-    conf_group.add_argument("--headers", action="append", help="Global headers (Key:Value) for auth/customization")
+    parser.add_argument("--license-key", help="Specify subscription key (Alternative to BREAKPOINT_LICENSE_KEY env)")
+    parser.add_argument("--headers", action="append", help="Global headers (Key:Value)")
     
-    # Catch known commands to prevent error
     args, unknown = parser.parse_known_args()
+
+    # Handle license key flag
+    if args.license_key:
+        os.environ["BREAKPOINT_LICENSE_KEY"] = args.license_key
 
     if unknown:
         print(f"[!] Error: Unknown arguments detected: {unknown}")
-        print("    Please check the command properly.")
+        if any("BRK-" in u for u in unknown):
+             print("[!] Tip: It looks like you're trying to pass a license key directly. Use '--license-key <KEY>' instead.")
         sys.exit(1)
-    
-    # If using "init" manually (depreciated but safe to ignore)
-    if "init" in sys.argv:
-        print("[*] Workspace is auto-managed. Initialization complete.")
-        sys.exit(0)
 
-    # Require URL manually if not passed
     if not args.base_url:
         parser.print_help()
         sys.exit(1)
 
+    # 2. RUNTIME LICENSE ENFORCEMENT
+    if args.aggressive:
+        if not check_access("aggressive"):
+            print(get_denial_message("aggressive"))
+            sys.exit(1)
+
+    if args.env == "production":
+        if not check_access("production"):
+            print(get_denial_message("production"))
+            sys.exit(1)
+
+    # 3. EULA CHECK
+    from breakpoint.legal import has_accepted_eula, prompt_eula
+    if not has_accepted_eula():
+        if not prompt_eula():
+            sys.exit(1)
+
     # Defaults
     if args.concurrency is None:
-        # SUPERCHARGE DEFAULTS for Modern Local Machines
         args.concurrency = 200 if args.aggressive else 50
-
-    # Header Loading
+        
     global_headers = {}
     if args.headers:
         for h in args.headers:
             if ":" in h:
                 k, v = h.split(":", 1)
                 global_headers[k.strip()] = v.strip()
-        print(f"[*] Loaded {len(global_headers)} global headers.")
 
-    # Report Path Default
-    if not args.html_report and not args.json_report and not args.sarif_report:
-        try:
-            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            reports_dir = get_reports_dir()
-            args.html_report = os.path.join(reports_dir, f"audit_{ts}.html")
-            print(f"[*] Report will be saved to: {args.html_report}")
-        except:
-            pass
-
-            pass
-
-    
     BANNER = r"""
   ____  _____  ______          _   _ _____   ____ _____ _   _ _______ 
  |  _ \|  __ \|  ____|   /\   | |/ /|  __ \ / __ \|_   _| \ | |__   __|
@@ -224,21 +197,28 @@ def main():
     print(f"{Fore.RED}   BREAKPOINT — WEAPONIZED RESILIENCE ENGINE")
     print(f"{Fore.RED}       \"Production is already broken.\"{Style.RESET_ALL}\n")
 
-    license_type = get_license_status()
-    print(f"[*] LICENSE: {license_type} EDITION")
+    tier = get_license_tier()
+    print(f"[*] LICENSE: {tier} EDITION")
 
     logger = ForensicLogger()
     print(f"[*] Forensic Audit Log Initialized: {logger.log_file}")
     
     # Scenarios Logic
+    # 0. AUTO-INIT WORKSPACE (Silent)
+    app_data = get_app_data_dir()
+    config_path = os.path.join(app_data, "default_scenarios.yaml")
+    
+    try:
+        src = get_default_scenarios_path()
+        if os.path.exists(src):
+            shutil.copy(src, config_path)
+    except Exception:
+        pass
+
     scenarios_path = args.scenarios
     if not scenarios_path:
-        # Check AppData first
         app_cfg = os.path.join(get_app_data_dir(), "default_scenarios.yaml")
-        if os.path.exists(app_cfg):
-             scenarios_path = app_cfg
-        else:
-             scenarios_path = get_default_scenarios_path()
+        scenarios_path = app_cfg if os.path.exists(app_cfg) else get_default_scenarios_path()
 
     try:
         scenarios = load_scenarios(scenarios_path)
@@ -246,34 +226,36 @@ def main():
         print(f"\n[!!!] FATAL: Failed to load scenarios: {e}")
         sys.exit(1)
 
-    # INTERACTIVE AUTHORIZATION REMOVED (User Request: "make it to run directly without asking")
-    # Users should use --headers "Authorization: ..." if needed.
-    pass
-
-    # SAFETY CHECK: DESTRUCTIVE MODE CONFIRMATION
-    # User Requirement: "what if pressed temporarily it should ask to type i authorize destruction in captial letters"
+    # SAFETY GATE
     if args.aggressive or args.force_live_fire:
-        if sys.stdin.isatty():
+        if args.env == "production":
+             print(f"\n{Fore.RED}" + "#"*60)
+             print(" CRITICAL: TARGETING PRODUCTION ENVIRONMENT")
+             print(" DESTRUCTIVE MODES ENABLED")
+             print(" ############################################################")
+             print(" You are about to unleash aggressive attacks against a PRODUCTION system.")
+             print(" #"*60 + f"{Style.RESET_ALL}\n")
+             
+             if not args.force_live_fire:
+                  if sys.stdin.isatty():
+                      print(f"Type {Fore.RED}'I AUTHORIZE DESTRUCTION'{Style.RESET_ALL} to proceed:")
+                      if input().strip() != "I AUTHORIZE DESTRUCTION":
+                         sys.exit(1)
+                  else:
+                      sys.exit(1)
+
+        elif sys.stdin.isatty() and not args.force_live_fire:
             print(f"\n{Fore.RED}" + "!"*60)
-            print(" 🛑 DANGER: DESTRUCTIVE / AGGRESSIVE MODE ENABLED")
-            print("    This mode will launch massive DoS attacks, write files, and potentially crash the target.")
-            print("    You must explicitly authorize this action.")
+            print(" WARNING: DESTRUCTIVE MODE ENABLED")
             print("!"*60 + f"{Style.RESET_ALL}")
-            
             print(f"\nType {Fore.RED}'I AUTHORIZE DESTRUCTION'{Style.RESET_ALL} to proceed:")
-            confirmation = input().strip()
-            
-            if confirmation != "I AUTHORIZE DESTRUCTION":
-                print(f"\n{Fore.RED}[!] Authorization Failed. You did not type the required phrase exactly.{Style.RESET_ALL}")
-                print("    Aborting aggressive scan for safety.")
+            if input().strip() != "I AUTHORIZE DESTRUCTION":
                 sys.exit(1)
-            else:
-                print(f"\n{Fore.GREEN}[+] DESTRUCTION AUTHORIZED. UNLEASHING CHAOS...{Style.RESET_ALL}\n")
 
-            # Safety lock handled manually above by strict prompt logic
-            pass
+        print(f"\n{Fore.GREEN}[+] DESTRUCTION AUTHORIZED. UNLEASHING CHAOS...{Style.RESET_ALL}\n")
+        logger.log_override_event(mode="AGGRESSIVE", target=args.base_url, env=args.env)
 
-    engine = Engine(base_url=args.base_url, forensic_log=logger, verbose=args.verbose, headers=global_headers)
+    engine = Engine(base_url=args.base_url, forensic_log=logger, verbose=args.verbose, headers=global_headers, simulation=args.simulation)
     
     if args.aggressive:
          for s in scenarios:
@@ -288,27 +270,16 @@ def main():
              
         try:
             print(f"[*] TARGET: {args.base_url}")
+            print(f"[*] ENV: {args.env.upper()}")
+            print(f"[*] MODE: {'SIMULATION' if args.simulation else 'EXECUTION'}")
             print(f"[*] PAYLOADS: {len(scenarios)}")
-            print("[*] EXECUTING...")
             
             results = engine.run_all(scenarios, concurrency=args.concurrency)
             
         except Exception as e:
             print(f"\n[!!!] CRITICAL FAILURE: {e}")
             logger.log_event("CRASH", {"error": str(e)})
-            
-            # Add Crash Result for Reporting
-            from breakpoint.models import CheckResult
-            results.append(CheckResult("SYSTEM_CRASH", "ENGINE_FAILURE", "ERROR", "CRITICAL", f"Engine Crashed: {str(e)}"))
-            
-            if not args.continuous: 
-                # Generate reports even on crash if possible
-                try: 
-                    reporter = ConsoleReporter()
-                    reporter.print_summary(results)
-                    if args.html_report: HtmlReporter(args.html_report).generate(results, {"total_estimated_damage": "$0", "downtime_minutes": 0}, {"target": args.base_url, "run_id": "CRASHED", "signature": "INVALID"})
-                except: pass
-                sys.exit(1)
+            sys.exit(1)
 
         econ = FailureEconomics()
         damage = econ.calculate_impact(results)

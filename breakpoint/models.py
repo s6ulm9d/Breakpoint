@@ -13,7 +13,7 @@ class Scenario:
 class CheckResult:
     id: str
     type: str
-    status: str # "SECURE" | "VULNERABLE" | "INCONCLUSIVE" | "ERROR"
+    status: str # "SECURE" | "VULNERABLE" | "INCONCLUSIVE" | "ERROR" | "BLOCKED" | "WAF_INTERCEPTED" | "PROXY_FAILURE"
     severity: Optional[str]
     details: str
     confidence: Optional[str] = "UNKNOWN" # CONFIRMED | HIGH | MEDIUM | LOW | TENTATIVE

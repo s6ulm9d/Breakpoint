@@ -1,3 +1,4 @@
+LICENSE
 README.md
 setup.py
 breakpoint/__init__.py
@@ -5,12 +6,14 @@ breakpoint/__main__.py
 breakpoint/assertions.py
 breakpoint/cli.py
 breakpoint/config.py
+breakpoint/default_scenarios.yaml
 breakpoint/economics.py
 breakpoint/engine.py
 breakpoint/flows.py
 breakpoint/forensics.py
 breakpoint/html_reporting.py
 breakpoint/http_client.py
+breakpoint/legal.py
 breakpoint/licensing.py
 breakpoint/metadata.py
 breakpoint/models.py

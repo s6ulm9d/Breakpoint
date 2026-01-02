@@ -35,7 +35,7 @@
   type: ssti
   target: /
   method: GET
-  config: {fields: [name, template, q], aggressive: true}
+  config: {fields: [name, template, q]}
 
 - id: xxe_external_entity
   type: xxe_exfil
@@ -47,7 +47,7 @@
   type: lfi
   target: /
   method: GET
-  config: {fields: [file, path, doc], aggressive: true}
+  config: {fields: [file, path, doc]}
 
 
 - id: rsc_framework_ssrf
@@ -60,38 +60,38 @@
   type: prototype_pollution
   target: /
   method: POST
-  config: {fields: [__proto__, constructor], aggressive: true}
+  config: {fields: [__proto__, constructor]}
 
 - id: crlf_injection
   type: crlf_injection
   target: /
   method: GET
-  config: {fields: [url, redirect], aggressive: true}
+  config: {fields: [url, redirect]}
 
 - id: xss_reflected
   type: xss
   target: /
   method: GET
-  config: {fields: [q, s, search], aggressive: true}
+  config: {fields: [q, s, search]}
 
 - id: open_redirect
   type: open_redirect
   target: /
   method: GET
-  config: {fields: [next, url], aggressive: true}
+  config: {fields: [next, url]}
 
 # 4. AUTH & ACL
 - id: jwt_none_alg
   type: jwt_weakness
   target: /
   method: GET
-  config: {header: "Authorization", aggressive: true}
+  config: {header: "Authorization"}
 
 - id: idor_numeric
   type: idor
   target: /api/users/1
   method: GET
-  config: {param: "1", aggressive: true}
+  config: {param: "1"}
 
 - id: brute_force_basic
   type: brute_force
@@ -104,7 +104,7 @@
   type: ssrf
   target: /
   method: GET
-  config: {fields: [url, webhook], aggressive: true}
+  config: {fields: [url, webhook]}
 
 - id: debug_exposure
   type: debug_exposure
@@ -138,13 +138,13 @@
   type: race_condition
   target: /
   method: POST
-  config: {threads: 10000, aggressive: true}
+  config: {threads: 5000}
 
 - id: slowloris_dos
   type: dos_slowloris
   target: /
   method: GET
-  config: {sockets: 10000, duration: 120, aggressive: true}
+  config: {sockets: 5000, duration: 60}
 
 - id: cache_poison_check
   type: cache_deception
@@ -232,25 +232,25 @@
   type: nosql_injection
   target: /login
   method: POST
-  config: {fields: [username, password], aggressive: true}
+  config: {fields: [username, password]}
 
 - id: ldap_injection_search
   type: ldap_injection
   target: /directory
   method: GET
-  config: {fields: [user, cn, mail], aggressive: true}
+  config: {fields: [user, cn, mail]}
 
 - id: xpath_injection_xml
   type: xpath_injection
   target: /api/soap
   method: POST
-  config: {fields: [query, id], aggressive: true}
+  config: {fields: [query, id]}
 
 - id: ssi_injection
   type: ssi_injection
   target: /
   method: GET
-  config: {fields: [input], aggressive: true}
+  config: {fields: [input]}
 
 - id: shellshock_legacy
   type: shellshock
@@ -303,7 +303,7 @@
   type: redos
   target: /api/validate
   method: POST
-  config: {fields: [email, username, search], aggressive: true}
+  config: {fields: [email, username, search]}
 
 - id: json_bomb_attack
   type: json_bomb
@@ -315,11 +315,11 @@
   target: /api/json
   method: POST
 
-- id: traffic_spike_load_post
+- id: traffic_spike_load
   type: traffic_spike
-  target: /api/submit
-  method: POST
-  config: {requests: 50000, concurrency: 500, aggressive: true, body: {data: "spam_spam_spam"}}
+  target: /
+  method: GET
+  config: {requests: 10000, concurrency: 50}
 
 - id: password_length_dos
   type: password_length
@@ -331,14 +331,14 @@
   type: replay_simple
   target: /api/protected
   method: POST
-  config: {body: {action: "test"}, repeats: 20000, aggressive: true}
+  config: {body: {action: "test"}, repeats: 5000}
 
 # 10. DESTRUCTIVE ATTACKS (v2.8.0-DESTRUCTIVE)
-- id: dos_extreme_annihilation_post
+- id: dos_extreme_annihilation
   type: dos_extreme
-  target: /api/upload
-  method: POST
-  config: {sockets: 20000, duration: 300, threads: 2000, aggressive: true}
+  target: /
+  method: GET
+  config: {sockets: 5000, duration: 60, threads: 100, aggressive: true}
 
 - id: rce_reverse_shell_attempt
   type: rce

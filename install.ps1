@@ -16,9 +16,14 @@ if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]:
 }
 
 $SourcePath = Join-Path $PSScriptRoot $BinaryName
+if (!(Test-Path $SourcePath)) {
+    # Fallback to alternative names
+    $AltName = "breakpoint_windows_x64.exe"
+    $SourcePath = Join-Path $PSScriptRoot $AltName
+}
 
 if (!(Test-Path $SourcePath)) {
-    Write-Host "[-] Error: Could not find '$BinaryName' in the current directory." -ForegroundColor Red
+    Write-Host "[-] Error: Could not find Breakpoint binary ('$BinaryName' or '$AltName') in the current directory." -ForegroundColor Red
     Write-Host "    Ensure you downloaded both the installer script and the executable to the same folder."
     Start-Sleep -Seconds 5
     Exit
@@ -44,16 +49,35 @@ catch {
     Exit
 }
 
-# 4. Add to PATH
-$CurrentPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-if ($CurrentPath -notlike "*$InstallDir*") {
-    $NewPath = $CurrentPath + ";$InstallDir"
-    [Environment]::SetEnvironmentVariable("Path", $NewPath, "Machine")
+# 4. Add to PATH (Machine & User for redundancy)
+$PathsChanged = $false
+
+# System Path
+$CurrentMachinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+if ($CurrentMachinePath -notlike "*$InstallDir*") {
+    $NewMachinePath = $CurrentMachinePath + ";$InstallDir"
+    [Environment]::SetEnvironmentVariable("Path", $NewMachinePath, "Machine")
+    $PathsChanged = $true
     Write-Host "[+] Added '$InstallDir' to System PATH." -ForegroundColor Green
-} else {
+}
+
+# User Path
+$CurrentUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($CurrentUserPath -notlike "*$InstallDir*") {
+    $NewUserPath = $CurrentUserPath + ";$InstallDir"
+    [Environment]::SetEnvironmentVariable("Path", $NewUserPath, "User")
+    $PathsChanged = $true
+    Write-Host "[+] Added '$InstallDir' to User PATH." -ForegroundColor Green
+}
+
+if (!$PathsChanged) {
     Write-Host "[*] PATH already configured." -ForegroundColor Yellow
 }
 
 Write-Host "`n[SUCCESS] Breakpoint installed successfully!" -ForegroundColor Green
-Write-Host "    You can now open a new terminal and type 'breakpoint' to start."
+Write-Host "--------------------------------------------------------"
+Write-Host "IMPORTANT: To use 'breakpoint' in THIS terminal, run:"
+Write-Host '$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")' -ForegroundColor Cyan
+Write-Host "Otherwise, please open a NEW terminal window."
+Write-Host "--------------------------------------------------------"
 Start-Sleep -Seconds 3

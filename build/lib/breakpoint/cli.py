@@ -61,13 +61,13 @@ def main():
     app_data = get_app_data_dir()
     config_path = os.path.join(app_data, "default_scenarios.yaml")
     
-    if not os.path.exists(config_path):
-        try:
-            src = get_default_scenarios_path()
-            if os.path.exists(src):
-                shutil.copy(src, config_path)
-        except:
-            pass
+    try:
+        src = get_default_scenarios_path()
+        if os.path.exists(src):
+            # FORCE UPDATE: Overwrite user config to ensure latest attacks are present
+            shutil.copy(src, config_path)
+    except Exception as e:
+        pass
 
     # 1. ARGUMENT MAGIC
     if len(sys.argv) > 1:

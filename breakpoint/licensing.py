@@ -1,77 +1,96 @@
-import hashlib
 import os
-import json
-
 import sys
+import requests
+import json
+import time
 
-def get_app_data_dir():
+# Runtime Validation Engine
+# No hardcoded keys. No embedded credentials.
+VALIDATION_ENDPOINT = "https://breakpoint-web-one.vercel.app/v1/validate"
+
+def get_license_tier():
+    """
+    Server-verified runtime check.
+    Returns: 'FREE' or 'PREMIUM'
+    """
+    key = os.environ.get("BREAKPOINT_LICENSE_KEY")
+    if not key:
+        return "FREE"
+
+    # Minimal cache logic (expires every 1 hour)
+    cache_dir = _get_cache_dir()
+    cache_file = os.path.join(cache_dir, "license_cache.json")
+    
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, 'r') as f:
+                cached = json.load(f)
+                if time.time() - cached.get("timestamp", 0) < 3600:
+                    if cached.get("key") == key:
+                        return cached.get("tier", "FREE")
+        except:
+            pass
+
+    # Remote Validation
+    try:
+        # Note: In a real environment, this would use a secure POST with machine fingerprint
+        resp = requests.get(
+            VALIDATION_ENDPOINT,
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=10
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            tier = data.get("tier", "FREE")
+            
+            # Update Cache
+            try:
+                with open(cache_file, 'w') as f:
+                    json.dump({"key": key, "tier": tier, "timestamp": time.time()}, f)
+            except:
+                pass
+                
+            return tier
+    except:
+        # Fails safely to FREE if server is unreachable
+        pass
+
+    return "FREE"
+
+def _get_cache_dir():
     if sys.platform == 'win32':
         base = os.environ.get('LOCALAPPDATA', os.path.expanduser('~\\AppData\\Local'))
         path = os.path.join(base, 'BreakPoint')
     else:
         path = os.path.expanduser('~/.config/breakpoint')
     
-    if not os.path.exists(path):
-        try: os.makedirs(path)
-        except: pass
+    os.makedirs(path, exist_ok=True)
     return path
 
-LICENSE_FILE = os.path.join(get_app_data_dir(), "license.json")
-
-def validate_license_key(key):
+def check_access(feature):
     """
-    Validates the license key format:
-    Format: BRK-[TYPE]-[RANDOM]-[CHECKSUM]
-    Example: BRK-ENT-X7A9-F3B2
-    (This is a simple offline check for demonstration. Real enterprise apps use RSA signatures.)
+    Hard-gate for premium features.
+    Features requiring PREMIUM: 'aggressive', 'production'
     """
-    try:
-        parts = key.split('-')
-        if len(parts) != 4:
-            return False
-        if parts[0] != "BRK":
-            return False
-        
-        # Simple checksum logic: Last 2 chars of checksum must match hash of first 3 parts
-        payload = f"{parts[0]}-{parts[1]}-{parts[2]}"
-        calc_hash = hashlib.sha256(payload.encode()).hexdigest()[:4].upper()
-        
-        if parts[3] == calc_hash:
-            return parts[1] # Return 'ENT' or 'STD'
-        return False
-    except:
-        return False
-
-def get_license_status():
-    """
-    Returns:
-    - 'ENTERPRISE': Full unlocked features.
-    - 'COMMUNITY': Restricted mode.
-    """
-    key = os.environ.get("BREAKPOINT_LICENSE_KEY")
+    tier = get_license_tier()
+    if tier == "PREMIUM":
+        return True
     
-    # Check local file if env var missing
-    if not key and os.path.exists(LICENSE_FILE):
-        try:
-            with open(LICENSE_FILE, 'r') as f:
-                data = json.load(f)
-                key = data.get("key")
-        except:
-            pass
-
-    if key:
-        tier = validate_license_key(key)
-        if tier == "ENT":
-            return "ENTERPRISE"
-        if tier == "PRO":
-            return "PROFESSIONAL"
-            
-    return "COMMUNITY"
-
-def save_license(key):
-    if not validate_license_key(key):
-        raise ValueError("Invalid License Key Format")
-        
-    with open(LICENSE_FILE, 'w') as f:
-        json.dump({"key": key, "activated_at": "timestamp"}, f)
+    # Denial logic
+    if feature in ['aggressive', 'production']:
+        return False
+    
     return True
+
+def get_denial_message(feature):
+    msg = f"\n[!] ACCESS DENIED: '{feature}' is a premium feature."
+    msg += "\n[!] Source is public, but execution requires a server-verified subscription."
+    
+    key = os.environ.get("BREAKPOINT_LICENSE_KEY")
+    if key:
+        msg += f"\n[!] A key was detected in BREAKPOINT_LICENSE_KEY but it failed validation with '{VALIDATION_ENDPOINT}'."
+    else:
+        msg += "\n[!] To enable, set the BREAKPOINT_LICENSE_KEY environment variable."
+        
+    msg += "\n[!] Visit https://breakpoint-web-one.vercel.app to subscribe."
+    return msg

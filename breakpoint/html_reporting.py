@@ -101,6 +101,13 @@ class HtmlReporter:
                     <div style="width: {resilience_score}%; background: var(--pass);"></div>
                     <div style="width: {100-resilience_score}%; background: var(--crit);"></div>
                 </div>
+                </div>
+             </div>
+             
+             <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 10px; font-size: 0.8rem; opacity: 0.6;">
+                <strong>Scoring Thresholds:</strong><br>
+                CRITICAL (9.0-10.0) &bull; HIGH (7.0-8.9)<br>
+                MEDIUM (4.0-6.9) &bull; LOW (0.1-3.9)
              </div>
         </div>
         
@@ -118,7 +125,74 @@ class HtmlReporter:
             </div>
         </div>
     </div>
+    """
+
+    # COMPLIANCE CALCULATIONS
+        compliance_map = {
+            "OWASP_2021": {"tested": set(), "failed": set()},
+            "NIST_800_53": {"tested": set(), "failed": set()},
+            "PCI_DSS_4.0": {"tested": set(), "failed": set()}
+        }
+        
+        for r in results:
+            atype = r.type if hasattr(r, 'type') else r.get("attack_type", "unknown")
+            meta = get_metadata(atype)
+            comp_data = meta.get("compliance", {})
+            
+            is_fail = (r.status == "VULNERABLE")
+            
+            for std, control in comp_data.items():
+                if std in compliance_map:
+                    compliance_map[std]["tested"].add(control)
+                    if is_fail:
+                        compliance_map[std]["failed"].add(control)
+
+        # Generate Compliance HTML
+        compliance_html = """
+        <h2>⚖️ Compliance Lens (Beta)</h2>
+        <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
+        """
+        
+        for std, data in compliance_map.items():
+            total = len(data["tested"])
+            failed = len(data["failed"])
+            passed = total - failed
+            score = 100
+            if total > 0:
+                score = (passed / total) * 100
+            
+            # Icon selection
+            icon = "🛡️"
+            if std == "OWASP_2021": icon = "🦉"
+            if std == "PCI_DSS_4.0": icon = "💳"
+            if std == "NIST_800_53": icon = "🏛️"
+
+            compliance_html += f"""
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <h3 style="margin:0;">{{icon}} {{std.replace('_', ' ')}}</h3>
+                    <div style="font-size: 1.2rem; font-weight: bold; color: {{'var(--pass)' if score == 100 else 'var(--crit)'}};">
+                        {{score:.0f}}%
+                    </div>
+                </div>
+                <div style="font-size: 0.9rem; opacity: 0.8; margin-bottom: 8px;">
+                     Controls Tested: <strong>{{total}}</strong>
+                </div>
+                 <div style="height: 6px; background: #333; border-radius: 3px; overflow: hidden; display: flex; margin-bottom: 15px;">
+                    <div style="width: {{score}}%; background: var(--pass);"></div>
+                    <div style="width: {{100-score}}%; background: var(--crit);"></div>
+                </div>
+                
+                <div style="font-size: 0.85rem;">
+                    {{f'<div style="color: var(--crit);">❌ Failed: {{", ".join(list(data["failed"])[:5])}}' + ('...' if len(data['failed'])>5 else '') + '</div>' if failed > 0 else '<div style="color: var(--pass);">✅ All Mapped Controls Passed</div>'}}
+                </div>
+            </div>
+            """
+        compliance_html += "</div>"
     
+        html += compliance_html
+        
+        html += """
     <!-- CRITICAL FINDINGS SECTION -->
     <h2>🔥 Critical Findings</h2>
     """
@@ -169,6 +243,16 @@ class HtmlReporter:
                      issues_list = "".join(f"<li>{i}</li>" for i in issues)
                      issues_section = f"<ul style='margin-bottom: 0;'>{issues_list}</ul>"
 
+                # Compliance Badges
+                comp_badges = ""
+                comp_data = meta.get("compliance", {})
+                if comp_data:
+                    comp_badges = "<div style='margin-top: 8px; margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap;'>"
+                    for std, code in comp_data.items():
+                        short_std = std.split('_')[0]
+                        comp_badges += f"<span style='background: rgba(88, 166, 255, 0.15); color: #58a6ff; border: 1px solid rgba(88, 166, 255, 0.3); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-family: monospace;'><strong>{short_std}</strong> {code}</span>"
+                    comp_badges += "</div>"
+
                 html += f"""
             <div class="finding">
                 <div class="finding-head">
@@ -177,7 +261,8 @@ class HtmlReporter:
                     <span style="margin-left: auto; opacity: 0.6; font-size: 0.8rem;">{scenario_id}</span>
                 </div>
                 <div class="finding-body">
-                    <p style="margin-top: 0;">{meta.get('description', '')}</p>
+                    <p style="margin-top: 0; margin-bottom: 5px;">{meta.get('description', '')}</p>
+                    {comp_badges}
                     {leaked_section}
                     <details open>
                         <summary>Technical Details</summary>

@@ -1,0 +1,216 @@
+BREAKPOINT COMMAND REFERENCE & TESTING GUIDE
+==================================================
+
+This document details every available command and argument for the Breakpoint Resilience Engine.
+It includes descriptions of behavior and steps to verify/test each function.
+
+PREREQUISITES FOR TESTING:
+---------------------------
+- Ensure you have a target to scan (e.g., http://localhost:3000 or a test server).
+- DO NOT run destructive tests against servers you do not own.
+- Command prefix: `python -m breakpoint` (or `breakpoint` if installed globally).
+
+==================================================
+1. BASIC SCAN
+==================================================
+COMMAND:
+  python -m breakpoint scan http://target.com --env dev
+
+DESCRIPTION:
+  Performs a standard security scan.
+  - `--env`: MANDATORY. Specifies the environment context (dev, staging, production).
+  - Defaults to non-destructive checks unless aggressive mode is enabled.
+
+TESTING:
+  1. Run against a local instance.
+  2. Verify that the scan initializes.
+  3. Verify that NO interactive safety prompts appear (standard mode is safe).
+  4. Check that basic probes (headers, simple fuzzing) are executed.
+
+==================================================
+2. IMPACT SIMULATION (NEW)
+==================================================
+COMMAND:
+  python -m breakpoint scan http://target.com --env dev --simulation
+
+DESCRIPTION:
+  Runs the engine in "Impact Simulation" mode.
+  - Skips execution of destructive attacks (SQLi, DoS, RCE).
+  - Reports status as [SIMULATED].
+  - Provides a theoretical impact description instead of a vulnerability confirmation.
+
+TESTING:
+  1. Run the command.
+  2. Look for output lines like: `-> [SIMULATED] sql_injection: [SIMULATION MODE] ...`
+  3. Verify that no heavy load or destructive payloads are actually sent to the server logs.
+
+==================================================
+3. AGGRESSIVE MODE (DESTRUCTIVE)
+==================================================
+COMMAND:
+  python -m breakpoint scan http://target.com --env dev --aggressive
+
+DESCRIPTION:
+  Enables weaponized payloads (DoS, deep injections).
+  - Triggers "LIVE FIRE" safety warning in dev/staging.
+  - Requires interactive user authorization ("I AUTHORIZE DESTRUCTION").
+
+TESTING:
+  1. Run against a non-production URL.
+  2. Verify the red banner: "WARNING: DESTRUCTIVE MODE ENABLED".
+  3. Try typing "yes" -> Should FAIL/EXIT.
+  4. Run again, type "I AUTHORIZE DESTRUCTION" -> Should PROCEED.
+
+==================================================
+4. PRODUCTION GUARD (CRITICAL SAFETY)
+==================================================
+COMMAND:
+  python -m breakpoint scan http://target.com --env production --aggressive
+
+DESCRIPTION:
+  Specific safeguard for the "production" environment.
+  - Triggers a distinct, more critical warning banner ("TARGETING PRODUCTION").
+  - Logs the override event to the forensic audit log.
+  - Requires strict interactive authorization.
+
+TESTING:
+  1. Run with `--env production` and `--aggressive`.
+  2. Observe the Critical Warning Banner (different from standard aggressive).
+  3. Confirm that strict authorization is required to proceed.
+
+==================================================
+5. CI/CD AUTOMATION (FORCE LIVE FIRE)
+==================================================
+COMMAND:
+  python -m breakpoint scan http://target.com --env dev --aggressive --force-live-fire
+
+DESCRIPTION:
+  Bypasses the interactive safety prompt.
+  - Intended for unattended execution in CI/CD pipelines.
+  - Still logs the "Override" event in audit logs.
+
+TESTING:
+  1. Run the command.
+  2. Verify that the tool starts scanning IMMEDIATELY without asking for input.
+  3. Check `audit_*.log` (if enabled/available) to ensure the event was recorded.
+
+==================================================
+6. CUSTOM SCENARIOS
+==================================================
+COMMAND:
+  python -m breakpoint scan http://target.com --env dev --scenarios ./my_config.yaml
+
+DESCRIPTION:
+  Loads a specific set of attack definitions from a YAML file.
+  - Useful for targeted testing (e.g., only checking for XSS).
+
+TESTING:
+  1. Create a file `test.yaml` with a single simple scenario.
+  2. Run the command pointing to this file.
+  3. Verify that ONLY the defined scenario is executed.
+
+==================================================
+7. REPORTING (JSON / HTML / SARIF)
+==================================================
+COMMAND:
+  python -m breakpoint scan http://target.com --env dev --html-report report.html --json-report report.json --sarif-report output.sarif
+
+DESCRIPTION:
+  Exports scan results to specified formats.
+  - HTML: Human-readable dashboard.
+  - JSON: Raw data for processing.
+  - SARIF: Static Analysis Results Interchange Format (for GitHub Security).
+
+TESTING:
+  1. Run scan with these flags.
+  2. Wait for completion.
+  3. Verify the files `report.html`, `report.json`, and `output.sarif` are created in the current directory.
+  4. Open `report.html` in a browser to verify rendering.
+
+==================================================
+8. CONCURRENCY CONTROL
+==================================================
+COMMAND:
+  python -m breakpoint scan http://target.com --env dev --concurrency 50
+
+DESCRIPTION:
+  Controls the number of parallel threads/workers.
+  - Default varies (50 standard, 200 aggressive).
+  - Higher values increase speed but also server load / risk of WAF blocking.
+
+TESTING:
+  1. Run with `--concurrency 10`.
+  2. Enable `--verbose` mode.
+  3. Check startup logs for "Concurrency: 10".
+
+==================================================
+9. CONTINUOUS MONITORING
+==================================================
+COMMAND:
+  python -m breakpoint scan http://target.com --env dev --continuous --interval 60
+
+DESCRIPTION:
+  Runs the scan repeatedly in a loop.
+  - `--interval`: Seconds to wait between scans.
+  - Useful for regression testing or monitoring.
+
+TESTING:
+  1. Run the command.
+  2. Allow the first scan to finish.
+  3. Verify the tool waits 60 seconds (check timestamp logs).
+  4. Verify "=== ITERATION #2 ===" starts automatically.
+
+==================================================
+10. CUSTOM HEADERS
+==================================================
+COMMAND:
+  python -m breakpoint scan http://target.com --env dev --headers "Authorization: Bearer 123" --headers "X-Custom: Test"
+
+DESCRIPTION:
+  Injects custom HTTP headers into EVERY request.
+  - Essential for scanning behind authentication or passing WAF tokens.
+
+TESTING:
+  1. Run against a service that echoes headers (e.g., httpbin.org/headers).
+  2. Verify the response contains the injected headers.
+
+==================================================
+11. VERBOSE LOGGING
+==================================================
+COMMAND:
+  python -m breakpoint scan http://target.com --env dev --verbose
+
+DESCRIPTION:
+  Enables debug-level output.
+  - Shows request details, errors, and internal logic decisions.
+
+TESTING:
+  1. Run with `--verbose`.
+  2. Observe detailed output streaming to the terminal (e.g., specific URLs being hit).
+
+==================================================
+12. LICENSE REGISTRATION
+==================================================
+COMMAND:
+  python -m breakpoint register <LICENSE_KEY>
+
+DESCRIPTION:
+  Activates the Enterprise/Pro functionalities if applicable.
+
+TESTING:
+  1. Run with a dummy key.
+  2. Check console output for success/failure message.
+
+==================================================
+13. UPDATE TOOL
+==================================================
+COMMAND:
+  python -m breakpoint update
+
+DESCRIPTION:
+  Checks for the latest version and updates the tool.
+  - Supports git-based update (git pull) or Release download.
+
+TESTING:
+  1. Run command.
+  2. Verify output checks for version `2.6.0-ELITE` or newer.

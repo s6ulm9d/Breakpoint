@@ -18,7 +18,7 @@ def run_debug_exposure(client: HttpClient, scenario: SimpleScenario) -> Dict[str
     # 1. Endpoint Scanning
     for t in targets:
         resp = client.send("GET", t)
-        if resp.status_code == 200:
+        if resp.status_code == 200 and not client.is_soft_404(resp):
             # Check content - don't alert on custom 200 error pages
             if "login" not in resp.text.lower() and len(resp.text) > 20: 
                 issues.append(f"Exposed Sensitive Endpoint: {t} (Status 200)")
@@ -36,6 +36,13 @@ def run_secret_leak(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
     """
     # Baseline
     resp = client.send(scenario.method, scenario.target)
+    if client.is_soft_404(resp):
+        return {
+            "scenario_id": scenario.id,
+            "attack_type": "secret_leak",
+            "passed": True,
+            "details": "Target returned Soft-404. Skipping secret scanning."
+        }
     
     sigs = [
         "AWS_ACCESS_KEY_ID", "BEGIN RSA PRIVATE KEY", "AIzaSy", 

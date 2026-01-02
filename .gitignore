@@ -12,10 +12,10 @@ env/
 .vscode/
 .idea/
 
-# Audit Artifacts (SENSITIVE)
-*.log
-*.html
-*.json
+# Audit Artifacts (SENSITIVE - Ignored in root, allowed in server/)
+/[!s]*.log
+/[!s]*.html
+/[!s]*.json
 *.sarif
 *.pdf
 STOP.lock

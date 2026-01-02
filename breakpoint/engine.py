@@ -1,6 +1,6 @@
 import requests
 from typing import List, Dict, Any, Optional
-from .reporting.forensics import ForensicLogger
+from .forensics import ForensicLogger
 from .attacks import dos_extreme, cache
 from .models import Scenario, CheckResult
 import concurrent.futures
@@ -29,12 +29,22 @@ ATTACK_IMPACTS = {
 }
 
 class Engine:
-    def __init__(self, base_url: str, forensic_log: Optional[ForensicLogger] = None, verbose: bool = False, headers: Dict[str, str] = None):
+    def __init__(self, base_url: str, forensic_log: Optional[ForensicLogger] = None, verbose: bool = False, headers: Dict[str, str] = None, simulation: bool = False):
         self.base_url = base_url.rstrip('/')
         self.verbose = verbose
+        self.simulation = simulation
         # Use provided logger or create a new one
         self.logger = forensic_log if forensic_log else ForensicLogger(verbose=verbose)
         self.headers = headers or {}
+        
+        # Robust Localhost Detection for Engine
+        self._is_localhost = any(x in self.base_url.lower() for x in ["localhost", "127.0.0.1", "0.0.0.0"])
+        
+        # Shared cache to prevent redundant 404 probes in parallel execution
+        self._dead_paths = set()
+        import threading
+        self._cache_lock = threading.Lock()
+        
         self._check_connection()
 
     def _check_connection(self):
@@ -49,163 +59,209 @@ class Engine:
             resp = requests.get(self.base_url, timeout=10, verify=False, headers=self.headers)
             print(f"    -> Target UP (Status: {resp.status_code}).")
         except Exception as e:
+            from .http_client import HttpClient
             print(f"\n❌ FATAL ERROR: Could not connect to {self.base_url}")
-            print(f"   Reason: {e}")
-            print("   [!] Aborting scan. Cannot exploit a target that cannot be reached.")
+            if not HttpClient._is_internet_available():
+                print("   [!] YOUR INTERNET CONNECTION IS DOWN.")
+                print("   [!] BREAKPOINT requires an active connection to probe targets.")
+            else:
+                print(f"   Reason: {e}")
+                print("   [!] Aborting scan. Cannot exploit a target that cannot be reached.")
             import sys; sys.exit(1) # Strict Exit
 
     def run_all(self, scenarios: List[Scenario], concurrency: int = 5) -> List[CheckResult]:
         init(autoreset=True)
         
         # Concurrency level: Respect CLI/User input
-        concurrency = concurrency or 500
-        
+        # DEFAULT: If user didn't specify (or passed 0), use 500.
+        # BUT: For localhost, cap it unless explicitly high.
+        if not concurrency:
+            concurrency = 500
+            
+        if self._is_localhost:
+            limit = 25 if any(s.config.get("aggressive") for s in scenarios if hasattr(s, 'config')) else 5
+            if concurrency > limit:
+                 if self.verbose: 
+                     print(f"[*] Localhost detected. Capping concurrency to {limit} to prevent dev-server saturation/hangs.")
+                 concurrency = limit
+             
         # Enforce Hard Exit on Ctrl+C (Global Handler)
         import signal
         def signal_handler(sig, frame):
-            print(f"\n{Fore.RED}[!] FORCE EXIT: User Triggered Ctrl+C.{Style.RESET_ALL}")
+            print(f"\n{Fore.RED}[!] FORCE EXIT: User Triggered Ctrl+C. Killing all threads...{Style.RESET_ALL}")
             os._exit(1)
         signal.signal(signal.SIGINT, signal_handler)
         
         results = []
         rate_limit_hits = 0
 
-        # Split scenarios: DoS MUST run last to avoid killing the server while checking XSS/SQLi
-        dos_types = ["dos_slowloris", "slowloris", "dos_extreme"]
+        # Split scenarios: destructive or resource-draining checks MUST run last
+        dos_types = [
+            "dos_slowloris", "slowloris", "dos_extreme", 
+            "advanced_dos", "redos", "xml_bomb", "json_bomb", 
+            "crash", "traffic_spike"
+        ]
         dos_scenarios = [s for s in scenarios if s.type in dos_types]
         std_scenarios = [s for s in scenarios if s.type not in dos_types]
         
-        # MERGED PHASES: Run EVERYTHING in parallel as requested ("fast as f***")
+        # Order matters: logical checks first, then potential hangs/crashes
         all_scenarios = std_scenarios + dos_scenarios
-        if not concurrency or concurrency > 50:
-             concurrency = 50 # Cap max concurrency to safe limits for laptop
         
         print(f"[*] 🚀 STARTING PARALLEL EXECUTION: Running {len(all_scenarios)} total scenarios (Concurrency: {concurrency})...")
-        print(f"    (Includes {len(std_scenarios)} Standard Checks & {len(dos_scenarios)} DoS/Stress Tests running simultaneously)")
+        if self._is_localhost:
+            print(f"    (LOCALHOST Optimization Enabled: App-layer DoS delayed, low concurrency)")
 
         executor = ThreadPoolExecutor(max_workers=concurrency)
         try:
-            # Submit ALL tasks at once
-            future_to_scenario = {executor.submit(self._execute_scenario, s): s for s in all_scenarios}
-            
-            try:
-                for future in as_completed(future_to_scenario):
-                    scenario = future_to_scenario[future]
+            if std_scenarios:
+                print(f"[*] PHASE 1: Executing {len(std_scenarios)} standard security checks...")
+                future_to_std = {executor.submit(self._execute_scenario, s): s for s in std_scenarios}
+                try:
+                    for future in as_completed(future_to_std):
+                        scenario = future_to_std[future]
+                        try:
+                            result = future.result(timeout=120)
+                            results.append(result)
+                            self._print_result(scenario, result)
+                            if result.status == "BLOCKED":
+                                rate_limit_hits += 1
+                        except concurrent.futures.TimeoutError:
+                            print(f"{Fore.RED}    -> [TIMEOUT] Phase 1 check {scenario.id} exceeded limit. KILLED.{Style.RESET_ALL}")
+                            results.append(CheckResult(scenario.id, scenario.type or "unknown", "ERROR", None, "Execution timed out."))
+                        except Exception as exc:
+                            print(f"{Fore.RED}    -> [ERROR] Scenario {scenario.id} failed: {exc}{Style.RESET_ALL}")
+                            results.append(CheckResult(scenario.id, scenario.type or "unknown", "ERROR", None, f"Exception: {str(exc)}"))
+                except KeyboardInterrupt:
+                    print(f"\n{Fore.RED}[!] User interrupted Phase 1. Shutting down...{Style.RESET_ALL}")
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    os._exit(1)
+
+            # PHASE 2: Destructive / DoS Scenarios (Last Resort)
+            if dos_scenarios:
+                print(f"\n[*] PHASE 2: Executing {len(dos_scenarios)} resource-intensive/destructive attacks...")
+                if self._is_localhost:
+                    print(f"    (Phase 2 Sequential Mode Engaged for Localhost Integrity)")
+                    for s in dos_scenarios:
+                        try:
+                            result = self._execute_scenario(s)
+                            results.append(result)
+                            self._print_result(s, result)
+                            if result.status == "BLOCKED":
+                                rate_limit_hits += 1
+                        except Exception as e:
+                            results.append(CheckResult(s.id, s.type, "ERROR", "HIGH", f"DoS Error: {str(e)}"))
+                else:
+                    future_to_dos = {executor.submit(self._execute_scenario, s): s for s in dos_scenarios}
                     try:
-                        # Determine timeout based on type
-                        timeout = 600 if scenario.type in dos_types else 120
-                        
-                        result = future.result(timeout=timeout)
-                        results.append(result)
-
-                        # Determine Status Color & Label
-                        color = Fore.GREEN
-                        if result.status == "VULNERABLE":
-                            color = Fore.RED
-                        elif result.status == "ERROR":
-                            color = Fore.RED
-                        elif result.status == "SECURE":
-                            color = Fore.GREEN # Treat rejected attacks as Green/Secure
-                        elif result.status == "ERROR":
-                            color = Fore.RED
-
-                        print(f"    -> {color}[{result.status}] {scenario.id}: {str(result.details)[:80]}...{Style.RESET_ALL}")
-                        
-                        # SHOW PROOF (Structured & Aligned)
-                        if result.status == "VULNERABLE":
-                            print(f"\n{Fore.RED}" + "="*60)
-                            print(f" 🔥 CRITICAL VULNERABILITY FOUND: {result.type.upper().replace('_', ' ')}")
-                            print(f"="*60 + f"{Style.RESET_ALL}")
-                            
-                            # Proof of Concept / Confidence
-                            conf_color = Fore.YELLOW
-                            if result.confidence == "CONFIRMED": conf_color = Fore.RED + Style.BRIGHT
-                            elif result.confidence == "HIGH": conf_color = Fore.RED
-                            
-                            print(f" {Fore.RED}{'Confidence:':<20}{Style.RESET_ALL} {conf_color}{result.confidence}{Style.RESET_ALL}")
-                            print(f" {Fore.RED}{'Target Endpoint:':<20}{Style.RESET_ALL} {scenario.method} {scenario.target}")
-                            
-                            # Extract Description/Title
-                            desc = ""
-                            if isinstance(result.details, dict):
-                                desc = result.details.get("title") or "Vulnerability confirmed via active exploit."
-                                issues = result.details.get("issues", [])
-                                unique_issues = list(dict.fromkeys(issues))
-                                if unique_issues:
-                                    print(f" {Fore.RED}{'Key Issues:':<20}{Style.RESET_ALL}")
-                                    for i in unique_issues[:5]: 
-                                        print(f"   - {i}")
-                            else:
-                                desc = str(result.details)[:100]
-                            
-                            print(f" {Fore.RED}{'Description:':<20}{Style.RESET_ALL} {desc}")
-                            
-                            # IMPACT
-                            impact_desc = ATTACK_IMPACTS.get(result.type) or ATTACK_IMPACTS.get(scenario.type) or "Security Control Failure."
-                            print(f" {Fore.RED}{'Business Impact:':<20}{Style.RESET_ALL} {impact_desc}")
-
-                            # REPRODUCTION
-                            payload_proof = None
-                            if isinstance(result.details, dict):
-                                payload_proof = result.details.get("reproduction_payload") or result.details.get("payload")
-                            
-                            if payload_proof:
-                                    print(f" {Fore.RED}{'Reproduction:':<20}{Style.RESET_ALL} Payload: {payload_proof}")
-                            else:
-                                    print(f" {Fore.RED}{'Reproduction:':<20}{Style.RESET_ALL} Run scenario '{scenario.id}' (Check Config)")
-
-                            # LEAKED DATA
-                            leaked = None
-                            if isinstance(result.details, dict):
-                                leaked = result.details.get("leaked_data") or result.details.get("evidence") or result.details.get("reason")
-                            
-                            if leaked:
-                                print(f"\n {Fore.RED}[ EVIDENCE / LEAKED DATA ]{Style.RESET_ALL}")
-                                print(f" {Fore.RED}" + "-"*40 + f"{Style.RESET_ALL}")
-                                
-                                if isinstance(leaked, list):
-                                    unique_leaks = list(dict.fromkeys([str(i).strip() for i in leaked if i]))
-                                    for idx, item in enumerate(unique_leaks[:5]):
-                                        clean_item = item.replace('\n', ' ').replace('\r', '')
-                                        print(f" {idx+1:02}. {clean_item[:300]}")
-                                else:
-                                    print(f" >> {str(leaked).strip()[:400]}...")
-                                print(f" {Fore.RED}" + "-"*40 + f"{Style.RESET_ALL}\n")
-                            print(f"{Fore.RED}" + "="*60 + f"{Style.RESET_ALL}\n")
-                        
-                    except concurrent.futures.TimeoutError:
-                        print(f"{Fore.RED}    -> [TIMEOUT] Scenario {scenario.id} exceeded limit. KILLED.{Style.RESET_ALL}")
-                        results.append(CheckResult(scenario.id, scenario.type or "unknown", "ERROR", None, "Execution timed out."))
-                        
-                    except Exception as exc:
-                        import traceback
-                        tb = traceback.format_exc()
-                        print(f"{Fore.RED}    -> [ERROR] Scenario {scenario.id} CRASHED: {exc}{Style.RESET_ALL}")
-                        self.logger.log_event("SCENARIO_CRASH", {"id": scenario.id, "error": str(exc), "traceback": tb})
-                        results.append(CheckResult(scenario.id, scenario.type or "unknown", "ERROR", None, f"Exception: {str(exc)}"))
-
-            except KeyboardInterrupt:
-                print(f"\n{Fore.RED}[!] User interrupted scan (Ctrl+C). Forcing immediate exit...{Style.RESET_ALL}")
-                executor.shutdown(wait=False, cancel_futures=True)
-                os._exit(1)
+                        for future in as_completed(future_to_dos):
+                            scenario = future_to_dos[future]
+                            try:
+                                result = future.result(timeout=600)
+                                results.append(result)
+                                self._print_result(scenario, result)
+                                if result.status == "BLOCKED":
+                                    rate_limit_hits += 1
+                            except Exception as exc:
+                                results.append(CheckResult(scenario.id, scenario.type, "ERROR", "HIGH", f"DoS Error: {str(exc)}"))
+                    except KeyboardInterrupt:
+                        print(f"\n{Fore.RED}[!] User interrupted Phase 2. Emergency shutdown...{Style.RESET_ALL}")
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        os._exit(1)
 
         except Exception as e:
             print(f"{Fore.RED}[!!!] CRITICAL: Engine Loop Failed: {e}{Style.RESET_ALL}")
         finally:
             executor.shutdown(wait=True)
-        
-        # 3. Final Stability Check
-        # 3. Final Stability & WAF Summary
+
         if rate_limit_hits > 0:
             print(f"\n{Fore.MAGENTA}" + "="*60)
             print(f" 🛡️  CONNECTION RESISTANCE SUMMARY")
             print(f"="*60 + f"{Style.RESET_ALL}")
             print(f" {Fore.MAGENTA}RESISTED CHECKS: {rate_limit_hits}{Style.RESET_ALL}")
-            print(f" Note: Usage of 'SECURE' status includes attacks that were")
-            print(f" dropped by network defenses or timeouts.")
             print(f" {Fore.MAGENTA}Infrastructure is actively defending.{Style.RESET_ALL}\n")
 
         return results
+
+
+    def _print_result(self, scenario: Scenario, result: CheckResult):
+        """Unified result printing logic."""
+        color = Fore.GREEN
+        if result.status == "VULNERABLE":
+            color = Fore.RED
+        elif result.status in ["ERROR", "PROXY_FAILURE"]:
+            color = Fore.MAGENTA
+        elif result.status in ["BLOCKED", "WAF_INTERCEPTED"]:
+            color = Fore.YELLOW
+        elif result.status == "INCONCLUSIVE":
+            color = Fore.CYAN
+        elif result.status == "SECURE":
+            color = Fore.GREEN
+        elif result.status == "SKIPPED":
+            color = Fore.WHITE
+
+        print(f"    -> {color}[{result.status}] {scenario.id}: {str(result.details)[:80]}...{Style.RESET_ALL}")
+        
+        # SHOW PROOF (Structured & Aligned)
+        if result.status == "VULNERABLE":
+            print(f"\n{Fore.RED}" + "="*60)
+            print(f" 🔥 CRITICAL VULNERABILITY FOUND: {result.type.upper().replace('_', ' ')}")
+            print(f"="*60 + f"{Style.RESET_ALL}")
+            
+            # Proof of Concept / Confidence
+            conf_color = Fore.YELLOW
+            if result.confidence == "CONFIRMED": conf_color = Fore.RED + Style.BRIGHT
+            elif result.confidence == "HIGH": conf_color = Fore.RED
+            
+            print(f" {Fore.RED}{'Confidence:':<20}{Style.RESET_ALL} {conf_color}{result.confidence}{Style.RESET_ALL}")
+            print(f" {Fore.RED}{'Target Endpoint:':<20}{Style.RESET_ALL} {scenario.method} {scenario.target}")
+            
+            # Extract Description/Title
+            desc = ""
+            if isinstance(result.details, dict):
+                desc = result.details.get("title") or "Vulnerability confirmed via active exploit."
+                issues = result.details.get("issues", [])
+                unique_issues = list(dict.fromkeys(issues))
+                if unique_issues:
+                    print(f" {Fore.RED}{'Key Issues:':<20}{Style.RESET_ALL}")
+                    for i in unique_issues[:5]: 
+                        print(f"   - {i}")
+            else:
+                desc = str(result.details)[:100]
+            
+            print(f" {Fore.RED}{'Description:':<20}{Style.RESET_ALL} {desc}")
+            
+            # IMPACT
+            impact_desc = ATTACK_IMPACTS.get(result.type) or ATTACK_IMPACTS.get(scenario.type) or "Security Control Failure."
+            print(f" {Fore.RED}{'Business Impact:':<20}{Style.RESET_ALL} {impact_desc}")
+
+            # REPRODUCTION
+            payload_proof = None
+            if isinstance(result.details, dict):
+                payload_proof = result.details.get("reproduction_payload") or result.details.get("payload")
+            
+            if payload_proof:
+                print(f" {Fore.RED}{'Reproduction:':<20}{Style.RESET_ALL} Payload: {payload_proof}")
+            else:
+                print(f" {Fore.RED}{'Reproduction:':<20}{Style.RESET_ALL} Run scenario '{scenario.id}' (Check Config)")
+
+            # EVIDENCE
+            leaked = None
+            if isinstance(result.details, dict):
+                leaked = result.details.get("leaked_data") or result.details.get("evidence") or result.details.get("reason")
+            
+            if leaked:
+                print(f"\n {Fore.RED}[ EVIDENCE / LEAKED DATA ]{Style.RESET_ALL}")
+                print(f" {Fore.RED}" + "-"*40 + f"{Style.RESET_ALL}")
+                
+                if isinstance(leaked, list):
+                    unique_leaks = list(dict.fromkeys([str(i).strip() for i in leaked if i]))
+                    for idx, item in enumerate(unique_leaks[:5]):
+                        clean_item = item.replace('\n', ' ').replace('\r', '')
+                        print(f" {idx+1:02}. {clean_item[:300]}")
+                else:
+                    print(f" >> {str(leaked).strip()[:400]}...")
+                print(f" {Fore.RED}" + "-"*40 + f"{Style.RESET_ALL}\n")
+            print(f"{Fore.RED}" + "="*60 + f"{Style.RESET_ALL}\n")
 
     def _execute_scenario(self, s: Scenario) -> CheckResult:
         """Executes a single scenario and returns its CheckResult."""
@@ -213,13 +269,66 @@ class Engine:
             # Resolve actual check type
             check_type = s.attack_type if getattr(s, 'type', '') == 'simple' and hasattr(s, 'attack_type') else s.type
             
+            # SIMULATION CHECK
+            from breakpoint.metadata import get_metadata
+            meta = get_metadata(check_type)
+            if self.simulation and meta.get("destructive", False):
+                if self.verbose:
+                    print(f"[SIMULATION] Skipping destructive attack: {check_type}")
+                return CheckResult(
+                    id=s.id,
+                    type=check_type,
+                    status="SIMULATED",
+                    severity=meta.get("risk_tier", "MEDIUM"),
+                    details=f"[SIMULATION MODE] Impact Assessment: {meta.get('impact_simulation', 'No impact data')}",
+                    confidence="SIMULATED"
+                )
+
             from .http_client import HttpClient
             from .attacks import crlf, xxe, rce, web_exploits, dos_extreme, cve_classics, brute
             from .attacks import config_exposure, ssti, logic, jwt_weakness, deserialization, idor, lfi, crash, data, traffic, auth, nosql
-            from .attacks import sqli as attack_sqli
-            from .attacks import headers, ssrf, performance 
+            from .attacks import sqli, headers, ssrf, performance
             
             client = HttpClient(self.base_url, verbose=self.verbose, headers=self.headers)
+            
+            # --- SMART BASELINE PROBE ---
+            # Don't waste time attacking endpoints that don't exist.
+            # Only skip if it's a path-specific attack (SQLi, XSS, Brute, etc.)
+            discovery_types = ["git_exposure", "env_exposure", "ds_store_exposure", "phpinfo", "swagger_exposure", "secret_leak", "debug_exposure", "directory_traversal"]
+            
+            # --- GLOBAL PATH CACHE CHECK & SERIALIZED PROBE ---
+            if check_type not in discovery_types:
+                with self._cache_lock:
+                    if s.target in self._dead_paths:
+                        return CheckResult(s.id, check_type, "SKIPPED", "INFO", f"Endpoint {s.target} confirmed unreachable. Skipping.")
+                    
+                    # Inside lock: Probe and mark if missing
+                    try:
+                        # Baseline probe is a canary for the endpoint
+                        baseline = client.send(s.method, s.target, is_canary=True)
+                        is_dead = baseline.status_code == 404 or client.is_soft_404(baseline)
+                        
+                        # AGGRESSIVE MODE: Never skip unless it's a hard connection failure
+                        if is_dead and s.config.get("aggressive"):
+                            if self.verbose:
+                                print(f"    [!] Target {s.target} looks like 404/Soft-404, but AGGRESSIVE mode is ON. Proceeding anyway.")
+                            is_dead = False
+
+                        if is_dead:
+                            self._dead_paths.add(s.target)
+                            if self.verbose:
+                                print(f"    [!] Skipping {s.id}: Endpoint {s.target} returned 404/Soft-404. (No target to attack)")
+                            return CheckResult(
+                                id=s.id,
+                                type=check_type,
+                                status="INCONCLUSIVE",
+                                severity="LOW",
+                                details=f"Endpoint {s.target} returned 404 Not Found. Marking as Dead Path.",
+                                confidence="P.O.C"
+                            )
+                    except:
+                        pass # Handled by outer block if it's a real connection error
+
             res_dict = {}
 
             # DISPATCHER
@@ -248,7 +357,7 @@ class Engine:
             elif check_type == "rsc_hydration_collapse":
                  from .attacks import rsc_hydration_collapse
                  res_dict = rsc_hydration_collapse.run_hydration_collapse(client, s)
-            elif check_type == "sql_injection": res_dict = attack_sqli.run_sqli_attack(client, s)
+            elif check_type == "sql_injection": res_dict = sqli.run_sqli_attack(client, s)
             elif check_type == "xss": res_dict = web_exploits.run_xss_scan(client, s)
             elif check_type == "open_redirect": res_dict = web_exploits.run_open_redirect(client, s)
             elif check_type == "brute_force": res_dict = brute.run_brute_force(client, s)
@@ -272,8 +381,8 @@ class Engine:
             elif check_type == "phpinfo": res_dict = config_exposure.run_phpinfo(client, s)
             elif check_type == "ds_store_exposure": res_dict = config_exposure.run_ds_store(client, s)
             elif check_type == "nosql_injection": res_dict = nosql.run_nosql_attack(client, s)
-            elif check_type == "ldap_injection": res_dict = attack_sqli.run_ldap_injection(client, s)
-            elif check_type == "xpath_injection": res_dict = attack_sqli.run_xpath_injection(client, s)
+            elif check_type == "ldap_injection": res_dict = sqli.run_ldap_injection(client, s)
+            elif check_type == "xpath_injection": res_dict = sqli.run_xpath_injection(client, s)
             elif check_type == "ssi_injection": res_dict = web_exploits.run_ssi_injection(client, s)
             elif check_type == "request_smuggling": res_dict = web_exploits.run_request_smuggling(client, s)
             elif check_type == "graphql_introspection": res_dict = web_exploits.run_graphql_introspection(client, s)
@@ -296,11 +405,13 @@ class Engine:
                 return CheckResult(s.id, check_type, "ERROR", "LOW", f"Unknown check type: {check_type}")
 
             # Convert Dict to CheckResult
-            status = "PASSED"
-            if res_dict.get("rate_limited"): status = "SECURE" # Was SKIPPED
-            elif not res_dict.get("passed"): status = "VULNERABLE"
-            if res_dict.get("skipped"): status = "SECURE"
-                
+            status = "SECURE"
+            if res_dict.get("status"):
+                status = res_dict.get("status")
+            elif res_dict.get("rate_limited"): status = "BLOCKED" 
+            elif res_dict.get("skipped"): status = "INCONCLUSIVE"
+            elif not res_dict.get("passed", True): status = "VULNERABLE"
+            
             details = res_dict.get("details", "")
             return CheckResult(
                 id=s.id,
@@ -312,8 +423,18 @@ class Engine:
             )
 
         except (requests.exceptions.RequestException, ConnectionError) as e:
-            # User Demand: "Whatever fails... attacks should be implemented". 
-            # If network fails, we mark as SECURE (Target Resisted) rather than BLOCKED.
-            return CheckResult(s.id, s.type, "SECURE", "INFO", f"Target Resisted / Network Drop: {str(e)[:50]}")
+            from .http_client import HttpClient
+            status = "BLOCKED"
+            msg = f"Connection Failed (Target Unreachable): {str(e)[:100]}"
+            if not HttpClient._is_internet_available():
+                status = "ERROR"
+                msg = f"CONNECTION LOST: Internet down locally. {str(e)[:30]}"
+            elif any(x in str(e).lower() for x in ["refused", "reset", "aborted"]):
+                 status = "ERROR"
+                 msg = f"TARGET DOWN: The local server at {self.base_url} likely crashed or is not running."
+            elif "timeout" in str(e).lower() or "localhost" in str(e).lower():
+                 status = "ERROR"
+                 msg = f"TARGET BUSY: Local server unresponsive/timed out. (Likely hung by previous DoS/ReDoS check)."
+            return CheckResult(s.id, s.type, status, "INFO", msg)
         except Exception as e:
             return CheckResult(s.id, s.type, "ERROR", "LOW", f"Internal Error: {str(e)}")

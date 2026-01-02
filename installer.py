@@ -65,21 +65,33 @@ def install():
     # 3. Update PATH
     print("[*] Configuring environment variables...")
     try:
-        ps_check = f'[Environment]::GetEnvironmentVariable("Path", "Machine") -like "*{target_dir}*"'
-        res = subprocess.run(["powershell", "-NoProfile", "-Command", ps_check], capture_output=True, text=True)
+        # Check Machine Path
+        ps_check_machine = f'[Environment]::GetEnvironmentVariable("Path", "Machine") -like "*{target_dir}*"'
+        res_machine = subprocess.run(["powershell", "-NoProfile", "-Command", ps_check_machine], capture_output=True, text=True)
         
-        if "True" not in res.stdout:
-            ps_add = f'[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "Machine") + ";{target_dir}", "Machine")'
-            subprocess.run(["powershell", "-NoProfile", "-Command", ps_add], check=True)
+        if "True" not in res_machine.stdout:
+            ps_add_machine = f'[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "Machine") + ";{target_dir}", "Machine")'
+            subprocess.run(["powershell", "-NoProfile", "-Command", ps_add_machine], check=True)
             print("[+] System PATH updated.")
-        else:
-            print("[*] PATH already configured.")
+        
+        # Check User Path
+        ps_check_user = f'[Environment]::GetEnvironmentVariable("Path", "User") -like "*{target_dir}*"'
+        res_user = subprocess.run(["powershell", "-NoProfile", "-Command", ps_check_user], capture_output=True, text=True)
+        
+        if "True" not in res_user.stdout:
+            ps_add_user = f'[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";{target_dir}", "User")'
+            subprocess.run(["powershell", "-NoProfile", "-Command", ps_add_user], check=True)
+            print("[+] User PATH updated.")
             
     except Exception as e:
         print(f"[-] PATH update failed: {e}")
 
     print("\n[SUCCESS] Installation Complete.")
-    print("You can now open a terminal and run: breakpoint")
+    print("-" * 50)
+    print("IMPORTANT: To use 'breakpoint' in the current terminal, run:")
+    print('  $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")')
+    print("Or simply open a new terminal window.")
+    print("-" * 50)
     print("Closing in 3 seconds...")
     time.sleep(3)
 

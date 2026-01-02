@@ -71,16 +71,13 @@ def run_brute_force(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
     # Pre-check
     check = client.send(scenario.method, scenario.target, json_body={"u": "test", "p": "test"})
     if check.status_code in [404, 405]:
-        if scenario.config.get("aggressive"):
-             print(f"    [AGGRESSIVE] FORCE-ATTACK: Ignoring status {check.status_code} on {scenario.target}. Starting High-Pressure Brute Force.")
-        else:
-             return {
-                "scenario_id": scenario.id,
-                "attack_type": "brute_force",
-                "passed": True,
-                "skipped": True,
-                "details": f"Endpoint returned {check.status_code}. Skipping attack."
-            }
+         return {
+            "scenario_id": scenario.id,
+            "attack_type": "brute_force",
+            "passed": True,
+            "skipped": True,
+            "details": f"Endpoint {scenario.target} returned {check.status_code}. Path does not exist/accept requests. Skipping brute force."
+        }
 
     responses = []
     success_creds = []
@@ -147,9 +144,16 @@ def run_brute_force(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
         details = "No Rate Limit detected (All 401s)."
         passed = False
     elif all(r == 200 for r in responses):
-        # API returns 200 for everything? That's bad design usually, or we can't tell failure.
-        details = "Endpoint returns 200 OK for all attempts. Ambiguous."
-        passed = False
+        return {
+            "scenario_id": scenario.id,
+            "attack_type": "brute_force",
+            "status": "INCONCLUSIVE", # New field for Engine to read if passed/skipped logic is bypassed or adapted
+            "passed": True, # Keep passed=True to avoid "VULNERABLE" default fallback in engine if it relies on it, but engine uses CheckResult mapping now.
+            # actually engine.py maps dict -> CheckResult. We need to return the dict such that engine converts it to INCONCLUSIVE.
+            # Engine logic: if res_dict.get("skipped"): status="SECURE". 
+            # We need to update engine.py to handle "status" in dict explicitly if present.
+            "details": "Endpoint always returns 200 OK. Cannot determine success (Blind)."
+        }
         
     return {
         "scenario_id": scenario.id,

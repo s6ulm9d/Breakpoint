@@ -8,11 +8,13 @@
 ```
 
 
-# 💀 BREAKPOINT (Elite Edition)
+# 💀 BREAKPOINT (Unified Edition)
 
-**Version:** 2.5.2  
+**Version:** 2.6.3-ELITE  
 **Status:** Weaponized / Audit-Grade  
 **Classification:** Offensive Security Tool (OST)
+
+> **NOTE:** Source is public. Premium features (Aggressive mode, Production scanning) require an active server-verified subscription. See [LICENSE](LICENSE) for details. (Portal: https://breakpoint-web-one.vercel.app)
 
 > "Production is already broken. You just haven't proved it yet."
 

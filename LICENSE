@@ -1,0 +1,23 @@
+BREAKPOINT PROPRIETARY LICENSE
+Copyright (c) 2026 soulmad. All rights reserved.
+
+Source code access does not grant usage rights to premium features. 
+
+1. GRANT OF LICENSE
+This software is provided in two tiers: Free and Premium. 
+By using the Free tier, you agree to the limitations enforced at runtime.
+By using the Premium tier, you must possess a valid, server-verified subscription.
+
+2. RESTRICTIONS
+- You may NOT bypass runtime license checks through code modification or environment manipulation.
+- You may NOT redistribute modified versions that unlock premium features without explicit server approval.
+- You must adhere to the BREAKPOINT EULA (see legal.py for text) at all times.
+
+3. SOURCE TRANSPARENCY
+This repository is public for transparency and collaboration. 
+Forking is permitted, but all forked versions will default to Free-tier logic unless a valid subscription is provided and server-verified.
+
+4. WARRANTY
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+
+For full terms, see the EULA text provided within the application metadata or contact support.

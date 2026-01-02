@@ -1,50 +1,13 @@
-# 🤝 Contributing to BREAKPOINT
+# Contributing to BREAKPOINT
 
-We welcome contributions from the elite security community.
+We welcome contributions from the community to improve the resilience of modern applications.
 
----
+## Guidelines
+1. **Focus on Attack Logic**: We welcome new attack modules and improved detection signatures.
+2. **Respect the Unified Architecture**: Do not submit PRs that attempt to bypass the licensing logic or alter the runtime enforcement mechanisms.
+3. **Tests Required**: Any new module must include basic verification tests.
 
-## 🛠️ Development Setup
+## Security Disclosures
+If you find a security vulnerability in the tool itself, please refer to [SECURITY.md](SECURITY.md).
 
-1.  **Fork & Clone**:
-    ```bash
-    git clone https://github.com/YOUR_USER/breakpoint.git
-    ```
-2.  **Environment**:
-    ```bash
-    python -m venv .venv
-    source .venv/bin/activate
-    pip install -e .
-    ```
-3.  **Code Style**:
-    - Follow PEP 8.
-    - Use `black` for formatting.
-
----
-
-## 🧩 Creating Attack Modules
-
-New attacks should be added to `breakpoint/attacks/`.
-Inherit from `AttackBase` and implement `execute()`.
-
-```python
-class MyNewAttack(AttackBase):
-    def execute(self, target):
-        # Your logic here
-        pass
-```
-
----
-
-## 🧪 Testing
-
-Run standard tests before submitting PRs:
-```bash
-python -m pytest tests/
-```
-
----
-
-## 📜 Code of Conduct
-
-Maintain professionalism. No harassment. No illegal use.
+Thank you for helping make the web more resilient.
