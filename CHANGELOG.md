@@ -1,6 +1,16 @@
 # 📜 Changelog
 
 All notable changes to the "BREAKPOINT" engine will be documented in this file.
+    
+## [2.7.0-ELITE] - 2026-01-18
+### 🌟 New Features
+- **Account Connection**: Integrated explicit account connection flow (`--login`) to sync with the Breakpoint-Web subscription engine.
+- **License Key Activation**: Added `--license-key <KEY>` flag for non-interactive activation and persistence, ideal for CI/CD or scripted deployments.
+- **Enterprise Validation**: Robust server-side verification for premium features (Aggressive mode, Production environment targeting).
+
+### 🛠️ Improvements
+- **Security Gates**: Hardened access control for destructive features, requiring verified ELITE/PREMIUM status.
+- **Localhost Optimization**: Improved thread management and safety locks for local testing to prevent dev-server crashes.
 
 ## [2.6.3-ELITE] - 2025-12-21
 ### 🛠️ Fixes

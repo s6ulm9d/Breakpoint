@@ -7,6 +7,7 @@ __pycache__/
 .venv/
 venv/
 env/
+*.egg-info/
 
 # IDE
 .vscode/
@@ -20,6 +21,17 @@ env/
 *.pdf
 STOP.lock
 
+# Build & Dist
+build/
+dist/
+*.spec
+*.exe
+
+# Data
+exfiltrated_data/
+proxies.txt
+
 # OS
 .DS_Store
 Thumbs.db
+

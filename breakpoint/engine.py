@@ -85,12 +85,8 @@ class Engine:
                      print(f"[*] Localhost detected. Capping concurrency to {limit} to prevent dev-server saturation/hangs.")
                  concurrency = limit
              
-        # Enforce Hard Exit on Ctrl+C (Global Handler)
-        import signal
-        def signal_handler(sig, frame):
-            print(f"\n{Fore.RED}[!] FORCE EXIT: User Triggered Ctrl+C. Killing all threads...{Style.RESET_ALL}")
-            os._exit(1)
-        signal.signal(signal.SIGINT, signal_handler)
+        # Signal handling is managed by the CLI-level handler in cli.py
+        # We only catch KeyboardInterrupt here if it propagates.
         
         results = []
         rate_limit_hits = 0
@@ -107,41 +103,40 @@ class Engine:
         # Order matters: logical checks first, then potential hangs/crashes
         all_scenarios = std_scenarios + dos_scenarios
         
-        print(f"[*] 🚀 STARTING PARALLEL EXECUTION: Running {len(all_scenarios)} total scenarios (Concurrency: {concurrency})...")
+        print(f"[*] 🚀 STARTING ENGINE: {len(all_scenarios)} scenarios (Concurrency: {concurrency})...")
         if self._is_localhost:
             print(f"    (LOCALHOST Optimization Enabled: App-layer DoS delayed, low concurrency)")
+
+        import threading
+        shutdown_event = threading.Event()
+
+        # No local signal handler here to avoid overriding the global one
 
         executor = ThreadPoolExecutor(max_workers=concurrency)
         try:
             if std_scenarios:
-                print(f"[*] PHASE 1: Executing {len(std_scenarios)} standard security checks...")
+                # Fast execution of Phase 1
                 future_to_std = {executor.submit(self._execute_scenario, s): s for s in std_scenarios}
-                try:
-                    for future in as_completed(future_to_std):
-                        scenario = future_to_std[future]
-                        try:
-                            result = future.result(timeout=120)
-                            results.append(result)
-                            self._print_result(scenario, result)
-                            if result.status == "BLOCKED":
-                                rate_limit_hits += 1
-                        except concurrent.futures.TimeoutError:
-                            print(f"{Fore.RED}    -> [TIMEOUT] Phase 1 check {scenario.id} exceeded limit. KILLED.{Style.RESET_ALL}")
-                            results.append(CheckResult(scenario.id, scenario.type or "unknown", "ERROR", None, "Execution timed out."))
-                        except Exception as exc:
-                            print(f"{Fore.RED}    -> [ERROR] Scenario {scenario.id} failed: {exc}{Style.RESET_ALL}")
-                            results.append(CheckResult(scenario.id, scenario.type or "unknown", "ERROR", None, f"Exception: {str(exc)}"))
-                except KeyboardInterrupt:
-                    print(f"\n{Fore.RED}[!] User interrupted Phase 1. Shutting down...{Style.RESET_ALL}")
-                    executor.shutdown(wait=False, cancel_futures=True)
-                    os._exit(1)
+                
+                for future in as_completed(future_to_std):
+                    if shutdown_event.is_set(): break
+                    scenario = future_to_std[future]
+                    try:
+                        result = future.result() # Removed explicit timeout for throughput
+                        results.append(result)
+                        self._print_result(scenario, result)
+                        if result.status == "BLOCKED":
+                            rate_limit_hits += 1
+                    except Exception as exc:
+                        results.append(CheckResult(scenario.id, scenario.type or "unknown", "ERROR", None, f"Exception: {str(exc)}"))
 
             # PHASE 2: Destructive / DoS Scenarios (Last Resort)
-            if dos_scenarios:
+            if dos_scenarios and not shutdown_event.is_set():
                 print(f"\n[*] PHASE 2: Executing {len(dos_scenarios)} resource-intensive/destructive attacks...")
                 if self._is_localhost:
                     print(f"    (Phase 2 Sequential Mode Engaged for Localhost Integrity)")
                     for s in dos_scenarios:
+                        if shutdown_event.is_set(): break
                         try:
                             result = self._execute_scenario(s)
                             results.append(result)
@@ -152,22 +147,23 @@ class Engine:
                             results.append(CheckResult(s.id, s.type, "ERROR", "HIGH", f"DoS Error: {str(e)}"))
                 else:
                     future_to_dos = {executor.submit(self._execute_scenario, s): s for s in dos_scenarios}
-                    try:
-                        for future in as_completed(future_to_dos):
-                            scenario = future_to_dos[future]
-                            try:
-                                result = future.result(timeout=600)
-                                results.append(result)
-                                self._print_result(scenario, result)
-                                if result.status == "BLOCKED":
-                                    rate_limit_hits += 1
-                            except Exception as exc:
-                                results.append(CheckResult(scenario.id, scenario.type, "ERROR", "HIGH", f"DoS Error: {str(exc)}"))
-                    except KeyboardInterrupt:
-                        print(f"\n{Fore.RED}[!] User interrupted Phase 2. Emergency shutdown...{Style.RESET_ALL}")
-                        executor.shutdown(wait=False, cancel_futures=True)
-                        os._exit(1)
+                    for future in as_completed(future_to_dos):
+                        if shutdown_event.is_set(): break
+                        scenario = future_to_dos[future]
+                        try:
+                            result = future.result(timeout=600)
+                            results.append(result)
+                            self._print_result(scenario, result)
+                            if result.status == "BLOCKED":
+                                rate_limit_hits += 1
+                        except Exception as exc:
+                            results.append(CheckResult(scenario.id, scenario.type, "ERROR", "HIGH", f"DoS Error: {str(exc)}"))
 
+        except KeyboardInterrupt:
+            print(f"\n{Fore.RED}[!] TERMINATING: User requested interrupt. Shutting down...{Style.RESET_ALL}")
+            shutdown_event.set()
+            executor.shutdown(wait=False, cancel_futures=True)
+            os._exit(0)
         except Exception as e:
             print(f"{Fore.RED}[!!!] CRITICAL: Engine Loop Failed: {e}{Style.RESET_ALL}")
         finally:
@@ -295,9 +291,10 @@ class Engine:
             # Don't waste time attacking endpoints that don't exist.
             # Only skip if it's a path-specific attack (SQLi, XSS, Brute, etc.)
             discovery_types = ["git_exposure", "env_exposure", "ds_store_exposure", "phpinfo", "swagger_exposure", "secret_leak", "debug_exposure", "directory_traversal"]
+            is_discovery = check_type in discovery_types
             
             # --- GLOBAL PATH CACHE CHECK & SERIALIZED PROBE ---
-            if check_type not in discovery_types:
+            if not is_discovery:
                 with self._cache_lock:
                     if s.target in self._dead_paths:
                         return CheckResult(s.id, check_type, "SKIPPED", "INFO", f"Endpoint {s.target} confirmed unreachable. Skipping.")

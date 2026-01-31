@@ -7,7 +7,7 @@ from breakpoint.metadata import get_metadata
 from breakpoint.safety_lock import SafetyLock
 from breakpoint.forensics import ForensicLogger
 from breakpoint.economics import FailureEconomics
-from breakpoint.licensing import check_access, get_denial_message, get_license_tier
+from breakpoint.licensing import check_access, get_denial_message, get_license_tier, login_flow, get_license_key
 import argparse
 import sys
 import os
@@ -66,7 +66,7 @@ def handle_update():
         if resp.status_code == 200:
             data = resp.json()
             latest = data.get("tag_name", "Unknown")
-            current = "2.6.3-ELITE"
+            current = "2.7.1-ELITE"
             print(f"[+] Latest Version: {latest}")
             print(f"[+] Current Version: {current}")
             if latest != current and latest != "Unknown":
@@ -80,45 +80,75 @@ def handle_update():
         print(f"[-] Update check failed: {e}")
     sys.exit(0)
 
+def check_internet_connectivity():
+    """Checks internet connectivity and latency."""
+    print("[*] Checking Internet Connectivity...", end="\r")
+    targets = ["https://1.1.1.1", "https://google.com"]
+    latency = None
+    
+    for target in targets:
+        try:
+            start = datetime.datetime.now()
+            requests.get(target, timeout=5)
+            end = datetime.datetime.now()
+            latency = (end - start).total_seconds() * 1000
+            break
+        except:
+            continue
+            
+    if latency is None:
+        print(f"[{Fore.RED}!{Style.RESET_ALL}] Internet: {Fore.RED}NO INTERNET{Style.RESET_ALL}        ")
+    elif latency > 500:
+        print(f"[{Fore.YELLOW}!{Style.RESET_ALL}] Internet: {Fore.YELLOW}SLOW ({int(latency)}ms){Style.RESET_ALL}    ")
+    else:
+        print(f"[{Fore.GREEN}+{Style.RESET_ALL}] Internet: {Fore.GREEN}GOOD ({int(latency)}ms){Style.RESET_ALL}    ")
+
 def main():
     init(autoreset=True)
+    signal.signal(signal.SIGINT, signal_handler)
     
     # 1. ROBUST SHORTHAND & COMMAND HANDLING
     # This handles "update", "scan <url>", "<url>", and even common mistakes like "--http..."
     if len(sys.argv) > 1:
-        # Handle update first to avoid required args
-        if sys.argv[1] == "update" or "--update" in sys.argv:
-            handle_update()
+        # 1. Handle explicit commands that don't need --base-url transformation
+        # Add --login and --license-key to the list of skip-transformation flags
+        skip_transformation = ["update", "--update", "--login", "--license-key", "--version", "-v"]
+        
+        # Check if any of these are the FIRST argument
+        if sys.argv[1] in skip_transformation:
+            if sys.argv[1] == "update" or sys.argv[1] == "--update":
+                handle_update()
+            # For others like --login, we let argparse handle it naturally later
+        else:
+            # Iterate and fix shorthand/mistakes for the target URL
+            for i in range(1, len(sys.argv)):
+                arg = sys.argv[i]
+                
+                # If we hit an existing known flag, stop searching for the shorthand URL
+                if arg.startswith("-"):
+                    continue
 
-        # Iterate and fix shorthand/mistakes
-        for i in range(1, len(sys.argv)):
-            arg = sys.argv[i]
-            # Handle shorthand URL (starts with http or --http)
-            if arg.startswith("http") or arg.startswith("--http"):
-                # Clean up if they used --http...
-                clean_url = arg.lstrip('-')
-                # Only insert if --base-url isn't already there
-                if "--base-url" not in sys.argv:
-                    sys.argv[i] = clean_url
-                    sys.argv.insert(i, "--base-url")
-                else:
-                    sys.argv[i] = clean_url
-                break
-            
-            # Handle "scan <url>"
-            if arg == "scan" and i + 1 < len(sys.argv):
-                sys.argv[i] = "--base-url"
-                break
+                # Handle shorthand URL (starts with http)
+                if arg.startswith("http"):
+                    # Only insert if --base-url isn't already there
+                    if "--base-url" not in sys.argv:
+                        sys.argv[i] = arg
+                        sys.argv.insert(i, "--base-url")
+                    break
+                
+                # Handle "scan <url>"
+                if arg == "scan" and i + 1 < len(sys.argv):
+                    sys.argv[i] = "--base-url"
+                    break
 
-    signal.signal(signal.SIGINT, signal_handler)
-    
     parser = argparse.ArgumentParser(
         description="BREAKPOINT // SYSTEM BREAKER",
         formatter_class=argparse.RawTextHelpFormatter
     )
     
-    parser.add_argument("-v", "--version", action="version", version="BREAKPOINT v2.6.3-ELITE")
+    parser.add_argument("-v", "--version", action="version", version="BREAKPOINT v2.7.1-ELITE")
     parser.add_argument("--update", action="store_true", help="Check for updates")
+    parser.add_argument("--login", action="store_true", help="Connect your Breakpoint account")
     
     target_group = parser.add_argument_group("Targeting")
     target_group.add_argument("--base-url", help="Target URL")
@@ -131,7 +161,7 @@ def main():
     out_group.add_argument("--sarif-report", help="Path to SARIF output")
     
     conf_group = parser.add_argument_group("Configuration")
-    conf_group.add_argument("--env", required=True, choices=["dev", "staging", "production"], help="Operational Environment (Mandatory)")
+    conf_group.add_argument("--env", choices=["dev", "staging", "production"], help="Operational Environment (Mandatory for scans)")
     conf_group.add_argument("--simulation", action="store_true", help="Run in Impact Simulation mode")
     conf_group.add_argument("--concurrency", type=int, default=None)
     conf_group.add_argument("--aggressive", action="store_true")
@@ -143,9 +173,58 @@ def main():
     
     args, unknown = parser.parse_known_args()
 
-    # Handle license key flag
+    # Handle license key flag (Non-interactive activation)
     if args.license_key:
         os.environ["BREAKPOINT_LICENSE_KEY"] = args.license_key
+        
+        # If ONLY the key is provided, validate and persist it
+        if not args.base_url and not args.login:
+            from breakpoint.licensing import VALIDATION_ENDPOINT, save_license_key, _get_cache_dir
+            print(f"[*] Activating with License Key...")
+            try:
+                resp = requests.get(
+                    VALIDATION_ENDPOINT,
+                    headers={"Authorization": f"Bearer {args.license_key}"},
+                    timeout=10
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    tier = data.get("type", data.get("tier", "FREE"))
+                    print(f"[+] Success! {tier} license activated and saved.")
+                    save_license_key(args.license_key)
+                    
+                    # Clear cache
+                    cache_file = os.path.join(_get_cache_dir(), "license_cache.json")
+                    if os.path.exists(cache_file): os.remove(cache_file)
+                    sys.exit(0)
+                else:
+                    print(f"[-] Validation failed: Status {resp.status_code}")
+                    sys.exit(1)
+            except Exception as e:
+                print(f"[-] Activation error: {e}")
+                sys.exit(1)
+
+    # 0. MANDATORY LOGIN CHECK (For new installations / Every run)
+    if args.login:
+        if login_flow():
+            sys.exit(0)
+        sys.exit(1)
+
+    # Check if logged in
+    from breakpoint.licensing import is_logged_in
+    if not is_logged_in():
+        print(f"\n{Fore.YELLOW}[!] LOGIN REQUIRED: Breakpoint requires a connected account.{Style.RESET_ALL}")
+        print("[!] Visit https://breakpoint-web-one.vercel.app to register.")
+        print("[!] Run 'breakpoint --login' to connect your account.")
+        
+        # If interactive, ask if they want to login now
+        if sys.stdin.isatty():
+             choice = input("\n[?] Would you like to log in now? (y/n): ").lower()
+             if choice == 'y':
+                 if login_flow():
+                     print("\n[+] Login successful. Please re-run your command.")
+                     sys.exit(0)
+        sys.exit(1)
 
     if unknown:
         print(f"[!] Error: Unknown arguments detected: {unknown}")
@@ -155,6 +234,10 @@ def main():
 
     if not args.base_url:
         parser.print_help()
+        sys.exit(1)
+
+    if not args.env:
+        print(f"\n{Fore.RED}[!] Error: --env <dev|staging|production> is mandatory for scans.{Style.RESET_ALL}")
         sys.exit(1)
 
     # 2. RUNTIME LICENSE ENFORCEMENT
@@ -196,6 +279,8 @@ def main():
     print(f"{Fore.RED}{BANNER}")
     print(f"{Fore.RED}   BREAKPOINT — WEAPONIZED RESILIENCE ENGINE")
     print(f"{Fore.RED}       \"Production is already broken.\"{Style.RESET_ALL}\n")
+
+    check_internet_connectivity()
 
     tier = get_license_tier()
     print(f"[*] LICENSE: {tier} EDITION")
