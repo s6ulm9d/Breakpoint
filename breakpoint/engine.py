@@ -29,6 +29,8 @@ ATTACK_IMPACTS = {
 }
 
 class Engine:
+    SHUTDOWN_SIGNAL = False
+
     def __init__(self, base_url: str, forensic_log: Optional[ForensicLogger] = None, verbose: bool = False, headers: Dict[str, str] = None, simulation: bool = False):
         self.base_url = base_url.rstrip('/')
         self.verbose = verbose
@@ -109,8 +111,14 @@ class Engine:
 
         import threading
         shutdown_event = threading.Event()
-
-        # No local signal handler here to avoid overriding the global one
+        
+        def monitor_shutdown():
+            while not Engine.SHUTDOWN_SIGNAL and not shutdown_event.is_set():
+                import time
+                time.sleep(0.1)
+            shutdown_event.set()
+            
+        threading.Thread(target=monitor_shutdown, daemon=True).start()
 
         executor = ThreadPoolExecutor(max_workers=concurrency)
         try:
@@ -119,16 +127,19 @@ class Engine:
                 future_to_std = {executor.submit(self._execute_scenario, s): s for s in std_scenarios}
                 
                 for future in as_completed(future_to_std):
-                    if shutdown_event.is_set(): break
+                    if Engine.SHUTDOWN_SIGNAL or shutdown_event.is_set(): 
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        break
                     scenario = future_to_std[future]
                     try:
-                        result = future.result() # Removed explicit timeout for throughput
+                        result = future.result() 
                         results.append(result)
                         self._print_result(scenario, result)
                         if result.status == "BLOCKED":
                             rate_limit_hits += 1
                     except Exception as exc:
-                        results.append(CheckResult(scenario.id, scenario.type or "unknown", "ERROR", None, f"Exception: {str(exc)}"))
+                        if not Engine.SHUTDOWN_SIGNAL:
+                            results.append(CheckResult(scenario.id, scenario.type or "unknown", "ERROR", None, f"Exception: {str(exc)}"))
 
             # PHASE 2: Destructive / DoS Scenarios (Last Resort)
             if dos_scenarios and not shutdown_event.is_set():
@@ -159,8 +170,9 @@ class Engine:
                         except Exception as exc:
                             results.append(CheckResult(scenario.id, scenario.type, "ERROR", "HIGH", f"DoS Error: {str(exc)}"))
 
-        except KeyboardInterrupt:
-            print(f"\n{Fore.RED}[!] TERMINATING: User requested interrupt. Shutting down...{Style.RESET_ALL}")
+        except (KeyboardInterrupt, SystemExit):
+            Engine.SHUTDOWN_SIGNAL = True
+            print(f"\n{Fore.RED}[!] TERMINATING: Instant Shutdown Triggered.{Style.RESET_ALL}")
             shutdown_event.set()
             executor.shutdown(wait=False, cancel_futures=True)
             os._exit(0)
@@ -294,7 +306,10 @@ class Engine:
             is_discovery = check_type in discovery_types
             
             # --- GLOBAL PATH CACHE CHECK & SERIALIZED PROBE ---
-            if not is_discovery:
+            # Speed Opt: Skip probing for discovery or DoS checks
+            do_probe = not is_discovery and check_type not in ["dos_slowloris", "slowloris", "dos_extreme", "advanced_dos", "traffic_spike"]
+            
+            if do_probe:
                 with self._cache_lock:
                     if s.target in self._dead_paths:
                         return CheckResult(s.id, check_type, "SKIPPED", "INFO", f"Endpoint {s.target} confirmed unreachable. Skipping.")

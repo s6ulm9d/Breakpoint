@@ -20,6 +20,8 @@ from colorama import Fore, Style, init
 
 def signal_handler(sig, frame):
     print("\n[!] Force Quitting (Ctrl+C detected)...")
+    from breakpoint.engine import Engine
+    Engine.SHUTDOWN_SIGNAL = True
     sys.stdout.flush()
     os._exit(0)
 
@@ -66,7 +68,7 @@ def handle_update():
         if resp.status_code == 200:
             data = resp.json()
             latest = data.get("tag_name", "Unknown")
-            current = "2.7.1-ELITE"
+            current = "2.7.2-ELITE"
             print(f"[+] Latest Version: {latest}")
             print(f"[+] Current Version: {current}")
             if latest != current and latest != "Unknown":
@@ -146,7 +148,7 @@ def main():
         formatter_class=argparse.RawTextHelpFormatter
     )
     
-    parser.add_argument("-v", "--version", action="version", version="BREAKPOINT v2.7.1-ELITE")
+    parser.add_argument("-v", "--version", action="version", version="BREAKPOINT v2.7.2-ELITE")
     parser.add_argument("--update", action="store_true", help="Check for updates")
     parser.add_argument("--login", action="store_true", help="Connect your Breakpoint account")
     
