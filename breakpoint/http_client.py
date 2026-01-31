@@ -345,14 +345,17 @@ class HttpClient:
                 if resp.status_code in [403, 429]:
                     if self.verbose: 
                         reason = "WAF Block" if resp.status_code == 403 else "Rate Limit"
-                        if attempt % 5 == 0:
-                            print(f"{Fore.YELLOW}[!] {reason} ({resp.status_code}). Retry {attempt+1}/{max_retries}...{Style.RESET_ALL}")
+                        # Only print every 50 attempts to avoid log spam, and use \r to keep it clean
+                        if (attempt + 1) % 50 == 0:
+                            with HttpClient._print_lock:
+                                print(f"{Fore.YELLOW}[!] Connection Resistance detected ({reason}). Retrying... (Attempt {attempt+1}/{max_retries}){Style.RESET_ALL}", end='\r')
                     
-                    # Minimal Backoff for Speed
+                    # Incremental Backoff with Jitter
+                    backoff = min(1.0, 0.1 * (attempt // 10 + 1))
                     if not self._is_localhost:
-                        time.sleep(random.uniform(0.1, 0.4))
+                        time.sleep(backoff + random.uniform(0.1, 0.3))
                     else:
-                        time.sleep(0.05) # Localhost backoff is tiny
+                        time.sleep(0.05)
                     continue
 
                 # Parse Success
