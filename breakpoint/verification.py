@@ -24,13 +24,13 @@ class TargetVerifier:
         try:
             resp = requests.get(verify_url, timeout=5)
             if resp.status_code == 200 and EXPECTED_CONTENT in resp.text:
-                print(f"✅ VERIFIED: Ownership confirmed. Access authorized for {parsed.hostname}.")
+                print(f"[+] VERIFIED: Ownership confirmed. Access authorized for {parsed.hostname}.")
                 return True
             else:
-                print(f"❌ FAILED: Could not find '{EXPECTED_CONTENT}' in {verify_url}")
+                print(f"[!] FAILED: Could not find '{EXPECTED_CONTENT}' in {verify_url}")
                 print(f"    -> Got Status: {resp.status_code}")
                 # print(f"    -> Response Body Preview: {resp.text[:50]}")
                 return False
         except Exception as e:
-            print(f"❌ ERROR: Connection failed during verification: {e}")
+            print(f"[!] ERROR: Connection failed during verification: {e}")
             return False

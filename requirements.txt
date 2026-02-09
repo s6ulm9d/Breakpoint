@@ -1,4 +1,11 @@
-Flask==3.0.3
-PyYAML==6.0.2
-requests==2.32.3
-colorama==0.4.6
+Flask>=3.0.3
+PyYAML>=6.0.1
+requests>=2.31.0
+colorama>=0.4.6
+tree-sitter>=0.21.3
+playwright>=1.48.0
+docker>=7.0.0
+temporalio>=1.6.0
+sarif-om>=1.0.4
+openai>=1.40.0
+anthropic>=0.30.0

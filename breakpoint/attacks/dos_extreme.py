@@ -26,7 +26,7 @@ def check(base_url, scenario, logger):
         # Adjusted for laptop safety: lowered floor from 2000 -> 500
         if target_socket_count < 500: target_socket_count = 500
         if duration < 60: duration = 60
-        print(f"    [DoS] 🔥 TOTAL ANNIHILATION MODE: {target_socket_count} sockets for {duration}s")
+        print(f"    [DoS] [+] TOTAL ANNIHILATION MODE: {target_socket_count} sockets for {duration}s")
     
     # Load proxies for rotation
     proxies = HttpClient._proxies

@@ -28,13 +28,13 @@ class SafetyLock:
         """
         
         if force_flag:
-            print("\n[SECURITY] ⚠️  AUTOMATION MODE ENGAGED (--force-live-fire)")
+            print("\n[SECURITY] [!] AUTOMATION MODE ENGAGED (--force-live-fire)")
             print("[SECURITY] Manual safety gates are BYPASSED.")
             print(f"[SECURITY] Target {self.target} will be attacked immediately.")
             return
 
         print("\n" + "="*60)
-        print("🛑  EXTREME DANGER WARNING  🛑")
+        print(" [!] EXTREME DANGER WARNING [!] ")
         print("="*60)
         print(f"Target: {self.target}")
         print("You are about to execute HIGH-SEVERITY, DESTRUCTIVE payloads.")
