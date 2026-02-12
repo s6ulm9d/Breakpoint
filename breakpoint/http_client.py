@@ -72,6 +72,7 @@ class HttpClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.verbose = verbose
+        self.silence_404s = False # Used by engine to suppress spam in aggressive modes
         self.global_headers = headers or {}
         self.session = requests.Session()
         
@@ -365,22 +366,27 @@ class HttpClient:
 
                 if self.verbose and not is_canary:
                     sc = resp.status_code
-                    is_s404 = self.is_soft_404(ResponseWrapper(
-                        status_code=resp.status_code, 
-                        headers=dict(resp.headers),
-                        text=resp.text,
-                        elapsed_ms=resp.elapsed.total_seconds()*1000,
-                        url=str(resp.url)
-                    ))
                     
-                    color = Fore.GREEN if sc < 400 else Fore.YELLOW if sc < 500 else Fore.RED
-                    display_sc = str(sc)
-                    if is_s404:
-                        color = Fore.YELLOW
-                        display_sc = f"{sc} (SOFT-404)"
+                    # LOG SUPPRESSION: Silence 404s if suppression is active (Aggressive Dead-Path testing)
+                    if self.silence_404s and sc in [404, 405]:
+                        pass # Shut the fuck up about 404s
+                    else:
+                        is_s404 = self.is_soft_404(ResponseWrapper(
+                            status_code=resp.status_code, 
+                            headers=dict(resp.headers),
+                            text=resp.text,
+                            elapsed_ms=resp.elapsed.total_seconds()*1000,
+                            url=str(resp.url)
+                        ))
+                        
+                        color = Fore.GREEN if sc < 400 else Fore.YELLOW if sc < 500 else Fore.RED
+                        display_sc = str(sc)
+                        if is_s404:
+                            color = Fore.YELLOW
+                            display_sc = f"{sc} (SOFT-404)"
 
-                    with HttpClient._print_lock:
-                        print(f"{color}[TRAFFIC] [<] {display_sc} {resp.reason} ({resp.elapsed.total_seconds()*1000:.0f}ms) | {url.split('?')[0]}{Style.RESET_ALL}")
+                        with HttpClient._print_lock:
+                            print(f"{color}[TRAFFIC] [<] {display_sc} {resp.reason} ({resp.elapsed.total_seconds()*1000:.0f}ms) | {url.split('?')[0]}{Style.RESET_ALL}")
 
                 return ResponseWrapper(
                     status_code=resp.status_code, 

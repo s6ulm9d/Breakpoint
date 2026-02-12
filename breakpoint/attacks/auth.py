@@ -24,10 +24,13 @@ def run_password_length(client: HttpClient, scenario: SimpleScenario) -> Dict[st
                 "details": {"skipped": True, "reason": "Endpoint 404. Skipping length test."}
             }
             
-        failed = resp.status_code >= 500 or resp.elapsed_ms > 2000 # 2s arbitrary hard limit for MVP
+        baseline_time = baseline.elapsed_ms if i > 0 else 500 # Default if first
+        is_5xx = resp.status_code >= 500
+        is_timeout = resp.elapsed_ms > 5000 and resp.elapsed_ms > (baseline_time * 4)
         
-        if failed:
-            issues.append(f"Length {length} caused failure: status={resp.status_code}, time={resp.elapsed_ms:.2f}ms")
+        if is_5xx or is_timeout:
+            reason = "Server Error 5xx" if is_5xx else f"Significant Latency ({resp.elapsed_ms:.0f}ms vs baseline {baseline_time:.0f}ms)"
+            issues.append(f"Length {length} caused failure: {reason}")
             
         results.append({
             "length": length,

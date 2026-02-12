@@ -6,7 +6,6 @@ from breakpoint.reporting import ConsoleReporter, generate_json_report
 from breakpoint.metadata import get_metadata
 from breakpoint.safety_lock import SafetyLock
 from breakpoint.forensics import ForensicLogger
-from breakpoint.economics import FailureEconomics
 from breakpoint.licensing import check_access, get_denial_message, get_license_tier, login_flow, get_license_key
 import argparse
 import sys
@@ -368,8 +367,6 @@ def main():
             logger.log_event("CRASH", {"error": str(e)})
             sys.exit(1)
 
-        econ = FailureEconomics()
-        damage = econ.calculate_impact(results)
         integrity = logger.sign_run()
         
         reporter = ConsoleReporter()
@@ -378,7 +375,7 @@ def main():
         forensic_meta = {"run_id": integrity["run_id"], "final_hash": integrity["final_hash"], "signature": integrity["signature"], "target": args.base_url, "iteration": iteration}
 
         if args.json_report: generate_json_report(results, args.json_report)
-        if args.html_report: HtmlReporter(args.html_report).generate(results, damage, forensic_meta)
+        if args.html_report: HtmlReporter(args.html_report).generate(results, forensic_meta)
         if args.sarif_report: SarifReporter(args.sarif_report).generate(results)
         
         if not args.continuous: break

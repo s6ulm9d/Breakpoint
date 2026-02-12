@@ -118,29 +118,41 @@ def run_sqli_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
 
         # 2. Boolean Blind / Auth Bypass Check
         if ptype == "auth_bypass":
-            # If we see success markers
-            if "welcome" in lower_text or "admin" in lower_text or "dashboard" in lower_text:
-                if "welcome" not in baseline.text.lower():
-                    suspicious = True
-                    reasons.append("Auth Bypass Successful (New Content Detected)")
+            # Check for Status Code Change or specific Success Keywords
+            is_success_code = (resp.status_code == 200 and baseline.status_code in [401, 403, 500])
+            is_new_content = any(k in lower_text for k in ["welcome", "dashboard", "logged in as", "sign out"])
+            
+            if is_success_code or (is_new_content and not any(k in baseline.text.lower() for k in ["welcome", "dashboard", "logged in as", "sign out"])):
+                suspicious = True
+                reasons.append("Auth Bypass Detected (Access Granted/New UI Content)")
 
         # 3. Data Extraction (Union)
         if ptype == "union_extraction":
-            indicators = ["ubuntu", "windows", "5.", "8.", "postgres", "sql server"]
-            if any(i in lower_text for i in indicators) and not any(i in baseline.text.lower() for i in indicators):
+            # Strict Indicators: Require at least two markers or very specific DB strings
+            indicators = ["ubuntu", "debian", "windows nt", "5.7.20", "8.0.21", "postgresql", "mysql server", "sqlite/3"]
+            found_indicators = [i for i in indicators if i in lower_text]
+            if len(found_indicators) >= 1 and not any(i in baseline.text.lower() for i in indicators):
                     suspicious = True
-                    reasons.append("DB Version Extracted")
+                    reasons.append(f"DB Info Extracted ({', '.join(found_indicators)})")
                     with lock:
                         leaked_data.append(f"[+] DATABASE BREACH: 'HACKED' - SQL Execution Confirmed\nExtracted: {resp.text[:100]}...")
         
-        # 4. Time-Based Blind Logic
+        # 4. Time-Based Blind Logic (With Verification)
         baseline_latency = getattr(baseline, 'elapsed_ms', 100) / 1000.0
         
         if ptype == "time_based":
             # Only flag if duration is > 6s AND significantly higher than baseline (e.g. 5x slower)
-            if duration > 6.0 and duration > (baseline_latency * 5):
-                    suspicious = True
-                    reasons.append(f"Time-Based SQLi Confirmed (Delay: {duration:.2f}s vs Baseline: {baseline_latency:.2f}s)")
+            if duration > 5.0 and duration > (baseline_latency * 4):
+                # VERIFICATION: Retry once to confirm it's not a fluke
+                try:
+                    start_v = time.time()
+                    resp_v = client.send(scenario.method, scenario.target, json_body=body, is_canary=True)
+                    duration_v = time.time() - start_v
+                    if duration_v > 5.0:
+                        suspicious = True
+                        reasons.append(f"Time-Based SQLi CONFIRMED (Retry Delay: {duration_v:.2f}s)")
+                except:
+                    pass
         
         with lock:
             variants.append({"field": field, "payload": p, "status": resp.status_code})

@@ -143,14 +143,18 @@ def run_rce_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
 
                 except: pass
             
-            # 3. Crash / Exhaustion Detection
-            # User feedback: "Breakpoint misclassified self-failure as target failure." 
-            # Status 0 (Connection Error) usually means OUR proxy died, not the server.
-            # We only count it as DoS if it TIMED OUT (elapsed > 4.5s) significantly compared to baseline.
-            if resp.elapsed_ms > 4500:
+            # 3. Crash / Exhaustion Detection (Heuristic)
+            # Only count as DoS if it TIMED OUT (elapsed > 4.5s) significantly compared to baseline.
+            if resp.elapsed_ms > 4500 and resp.status_code != 0:
                 if baseline.elapsed_ms < 1000:
-                     suspicious = True
-                     reasons.append(f"Server Hang Confirmed (DoS via RCE). Time: {resp.elapsed_ms:.0f}ms")
+                    # VERIFY: Is it still hanging?
+                    try:
+                        resp_v = client.send(scenario.method, scenario.target, json_body=body, timeout=5.0, is_canary=True)
+                        if resp_v.elapsed_ms > 4500:
+                             suspicious = True
+                             reasons.append(f"Persistent Server Hang (DoS via RCE). Time: {resp.elapsed_ms:.0f}ms")
+                    except:
+                        pass
                 
             if suspicious:
                 issues.append(f"[CRITICAL] RCE Probability in '{field}': {', '.join(reasons)}")

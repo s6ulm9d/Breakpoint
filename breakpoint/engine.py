@@ -358,7 +358,9 @@ class Engine:
                         # AGGRESSIVE MODE: Never skip unless it's a hard connection failure
                         if is_dead and s.config.get("aggressive"):
                             if self.verbose:
-                                print(f"    [!] Target {s.target} looks like 404/Soft-404, but AGGRESSIVE mode is ON. Proceeding anyway.")
+                                print(f"    [!] Target {s.target} looks like 404/Soft-404, but AGGRESSIVE mode is ON. Proceeding with SILENT probes.")
+                            # We don't mark as dead, but we should hint to silencers 
+                            client.silence_404s = True
                             is_dead = False
 
                         if is_dead:

@@ -35,13 +35,28 @@ def run_idor_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
         id_range.extend(extras)
         
     results = []
-    for val in id_range:
+    for i, val in enumerate(id_range):
         actual_path = target_template.replace(f"{{{{{param}}}}}", str(val))
         if actual_path == target_template:
             actual_path = f"{target_template.rstrip('/')}/{val}"
             
-        resp = client.send(scenario.method, actual_path)
+        # Optimization: Use is_canary=True to silence logs. 
+        # IDOR usually probes hundreds of IDs; we don't need to see every request.
+        resp = client.send(scenario.method, actual_path, is_canary=True)
         
+        # PERSISTENT 404 ABORT: If we hit 404/405, and it's not the owner's ID, 
+        # it's likely a dead path. Avoid log spam.
+        if resp.status_code in [404, 405]:
+            # If it's the very first request and it's 404, the whole thing is dead.
+            if i == 0:
+                return {
+                    "scenario_id": scenario.id,
+                    "attack_type": "idor",
+                    "passed": True,
+                    "details": {"skipped": True, "reason": "Endpoint 404 - Aborting IDOR loop."}
+                }
+            continue # Try next ID, but don't log.
+            
         snippet = resp.text[:100].replace("\n", " ")
         results.append({
             "id": val,
