@@ -331,22 +331,25 @@ class Engine:
             
             client = HttpClient(self.base_url, verbose=self.verbose, headers=self.headers)
             
+            with self._cache_lock:
+                if s.target in self._dead_paths:
+                    return CheckResult(s.id, check_type, "SKIPPED", "INFO", f"Endpoint {s.target} confirmed unreachable. Skipping.")
+
             # --- SMART BASELINE PROBE ---
             # Don't waste time attacking endpoints that don't exist.
-            # Only skip if it's a path-specific attack (SQLi, XSS, Brute, etc.)
             discovery_types = ["git_exposure", "env_exposure", "ds_store_exposure", "phpinfo", "swagger_exposure", "secret_leak", "debug_exposure", "directory_traversal"]
             is_discovery = check_type in discovery_types
             
-            # --- GLOBAL PATH CACHE CHECK & SERIALIZED PROBE ---
-            # Speed Opt: Skip probing for discovery or DoS checks
+            # Speed Opt: Skip probing for resource-intensive DoS checks (they establish their own connection)
             do_probe = not is_discovery and check_type not in ["dos_slowloris", "slowloris", "dos_extreme", "advanced_dos", "traffic_spike"]
             
             if do_probe:
+                # Inside lock: Probe and mark if missing
                 with self._cache_lock:
+                    # Re-check inside lock to avoid race conditions from parallel threads
                     if s.target in self._dead_paths:
-                        return CheckResult(s.id, check_type, "SKIPPED", "INFO", f"Endpoint {s.target} confirmed unreachable. Skipping.")
-                    
-                    # Inside lock: Probe and mark if missing
+                         return CheckResult(s.id, check_type, "SKIPPED", "INFO", f"Endpoint {s.target} confirmed unreachable.")
+
                     try:
                         # Baseline probe is a canary for the endpoint
                         baseline = client.send(s.method, s.target, is_canary=True)

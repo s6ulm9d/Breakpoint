@@ -363,17 +363,15 @@ class HttpClient:
                 try: json_data = resp.json()
                 except: pass
 
-                if self.verbose:
+                if self.verbose and not is_canary:
                     sc = resp.status_code
-                    is_s404 = False
-                    if not is_canary:
-                        is_s404 = self.is_soft_404(ResponseWrapper(
-                            status_code=resp.status_code, 
-                            headers=dict(resp.headers),
-                            text=resp.text,
-                            elapsed_ms=resp.elapsed.total_seconds()*1000,
-                            url=str(resp.url)
-                        ))
+                    is_s404 = self.is_soft_404(ResponseWrapper(
+                        status_code=resp.status_code, 
+                        headers=dict(resp.headers),
+                        text=resp.text,
+                        elapsed_ms=resp.elapsed.total_seconds()*1000,
+                        url=str(resp.url)
+                    ))
                     
                     color = Fore.GREEN if sc < 400 else Fore.YELLOW if sc < 500 else Fore.RED
                     display_sc = str(sc)

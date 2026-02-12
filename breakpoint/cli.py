@@ -68,7 +68,7 @@ def handle_update():
         if resp.status_code == 200:
             data = resp.json()
             latest = data.get("tag_name", "Unknown")
-            current = "2.7.2-ELITE"
+            current = "3.0.0-ELITE"
             print(f"[+] Latest Version: {latest}")
             print(f"[+] Current Version: {current}")
             if latest != current and latest != "Unknown":
@@ -148,7 +148,7 @@ def main():
         formatter_class=argparse.RawTextHelpFormatter
     )
     
-    parser.add_argument("-v", "--version", action="version", version="BREAKPOINT v2.7.2-ELITE")
+    parser.add_argument("-v", "--version", action="version", version="BREAKPOINT v3.0.0-ELITE")
     parser.add_argument("--update", action="store_true", help="Check for updates")
     parser.add_argument("--login", action="store_true", help="Connect your Breakpoint account")
     

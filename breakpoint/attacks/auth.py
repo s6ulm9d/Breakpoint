@@ -9,12 +9,21 @@ def run_password_length(client: HttpClient, scenario: SimpleScenario) -> Dict[st
     results = []
     issues = []
     
-    for length in lengths:
+    for i, length in enumerate(lengths):
         val = "A" * length
         body = {"username": "test", target_field: val}
         
-        resp = client.send(scenario.method, scenario.target, json_body=body)
+        resp = client.send(scenario.method, scenario.target, json_body=body, is_canary=(i > 0))
         
+        # Abort if endpoint is missing
+        if resp.status_code in [404, 405]:
+            return {
+                "scenario_id": scenario.id,
+                "attack_type": "password_length",
+                "passed": True,
+                "details": {"skipped": True, "reason": "Endpoint 404. Skipping length test."}
+            }
+            
         failed = resp.status_code >= 500 or resp.elapsed_ms > 2000 # 2s arbitrary hard limit for MVP
         
         if failed:
@@ -45,12 +54,26 @@ def run_replay_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str,
     statuses = set()
     
     for i in range(repeats):
-        resp = client.send(scenario.method, scenario.target, json_body=body)
+        resp = client.send(scenario.method, scenario.target, json_body=body, is_canary=(i > 0))
+        
+        # Abort if endpoint is missing or blocked persistently
+        if resp.status_code in [404, 405, 410]:
+            return {
+                "scenario_id": scenario.id,
+                "attack_type": "replay_simple",
+                "passed": True,
+                "details": {"skipped": True, "reason": f"Endpoint returned {resp.status_code}. Aborting replay loop."}
+            }
+            
         responses.append({
             "iter": i,
             "status": resp.status_code
         })
         statuses.add(resp.status_code)
+        
+        # Optimization: If we already have multiple statuses, we can stop early
+        if len(statuses) > 1:
+            break
         
     # Naive check: if we get different status codes, might be interesting
     passed = len(statuses) == 1

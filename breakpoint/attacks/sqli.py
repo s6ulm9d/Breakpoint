@@ -5,7 +5,7 @@ from ..scenarios import SimpleScenario
 
 def run_sqli_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     # 1. Baseline - Establish "Safe" State
-    baseline = client.send(scenario.method, scenario.target, json_body={"username": "test", "password": "password"})
+    baseline = client.send(scenario.method, scenario.target, json_body={"username": "test", "password": "password"}, is_canary=True)
     
     if baseline.status_code in [404, 405]:
         return {
