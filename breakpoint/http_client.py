@@ -367,9 +367,10 @@ class HttpClient:
                 if self.verbose and not is_canary:
                     sc = resp.status_code
                     
-                    # LOG SUPPRESSION: Silence 404s if suppression is active (Aggressive Dead-Path testing)
-                    if self.silence_404s and sc in [404, 405]:
-                        pass # Shut the fuck up about 404s
+                    # LOG SUPPRESSION: Silence 404s/405s in traffic logs to avoid terminal spam
+                    # These are standard in fuzzer-style scanning and just clutter the UI.
+                    if sc in [404, 405]:
+                        pass 
                     else:
                         is_s404 = self.is_soft_404(ResponseWrapper(
                             status_code=resp.status_code, 
