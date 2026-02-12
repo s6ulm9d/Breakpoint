@@ -4,38 +4,31 @@
 ---
 
 ## 1. Core Architecture & Philosophy
-Breakpoint is built on the premise that "Production is already broken." Unlike legacy tools (Snyk, Burp) that focus on discovery, Breakpoint focuses on **deterministic resilience**.
+Breakpoint is built on the premise that "Production is already broken." Unlike legacy tools (Snyk, Burp) that focus on discovery, Breakpoint focuses on **deterministic verification** and **high-velocity auditing**.
 
-### 🧬 The Four Pillars (Implementation Details)
+### 🧬 The Core Pillars (Implementation Details)
 
-#### I. Deterministic Code Property Graph (CPG)
-*   **Location**: `breakpoint/cpg.py`, `breakpoint/stac.py`
-*   **Implementation**: Breakpoint utilizes `tree-sitter` to parse source code into an AST. It then maps **Abstract Syntax Trees (AST)**, **Control Flow Graphs (CFG)**, and **Program Dependence Graphs (PDG)**.
-*   **Mechanical Advantage**: By tracking data flow from "Sinks" (e.g., `db.execute()`) back to "Sources" (e.g., `request.args`), the engine mathematically proves reachability before the scanner even fires a packet.
+#### I. High-Velocity Execution Engine
+*   **Location**: `breakpoint/engine.py`
+*   **Implementation**: Utilizes an adaptive `ThreadPoolExecutor` with phase-based execution.
+*   **Mechanical Advantage**: Parallelizes hundred of probes per second while maintaining target integrity through intelligent concurrency capping for sensitive environments (e.g., localhost).
 
-#### II. Red vs. Blue Adversarial Loops
-*   **Location**: `breakpoint/agents.py`, `breakpoint/engine.py:276`
-*   **Implementation**: A three-agent orchestration managed by the `AdversarialLoop` class.
-    *   **The Breaker**: Generates high-fidelity PoCs (Python/Requests).
-    *   **The Fixer**: Scans the AST/CPG to propose a precise git-diff patch.
-    *   **The Validator**: Attacker-simulated LLM that attempts to bypass the Fixer's patch using advanced evasion (e.g., encoding, multi-stage bypass).
-*   **Exit Condition**: The loop only terminates when the Validator returns `UNBREAKABLE`.
+#### II. Differential Vulnerability Analysis
+*   **Location**: `breakpoint/attacks/`
+*   **Implementation**: Instead of simple status-code checking, Breakpoint performs **Differential Analysis**:
+    *   **Timing Deltas**: Measuring millisecond-level variances between baseline and injected payloads.
+    *   **Content Divergence**: Byte-level comparison of response bodies to detect subtle boolean state changes.
+    *   **Heuristic Confirmation**: Re-verifying findings with alternative payloads to ensure zero false positives.
 
-#### III. Security-Test-as-Code (STaC)
-*   **Location**: `breakpoint/stac.py`
-*   **Implementation**: The `STaCEngine` class. When a vulnerability is confirmed, it generates a stateful **Playwright** or **Pytest** file.
-*   **Reference Code** (`stac.py:78`):
-    ```python
-    def test_sql_injection_api_regression():
-        # This test ensures the vulnerability is mathematically mitigated
-        response = requests.request(method, url, json=payload, params=params)
-        assert response.status_code != 200, "Vulnerability still exists!"
-    ```
+#### III. Forensic Audit Chain
+*   **Location**: `breakpoint/forensics.py` (Implementation intended for v3.1)
+*   **Philosophy**: Every packet is logged with a session-specific trace.
+*   **Legal/Ethical**: Provides an immutable record of authorized testing, ensuring full chain-of-custody for enterprise compliance audits.
 
-#### IV. Isolated Victim Sandboxing
-*   **Location**: `breakpoint/sandbox.py`
-*   **Implementation**: Utilizes `docker-py` to spawn hardened, ephemeral containers. 
-*   **Usage**: Destructive exploits (like RCE or `dos_extreme`) are executed inside the container to measure survival metrics (CPU/RAM spikes) without touching host infrastructure.
+#### IV. Industrial-Grade Reporting
+*   **Location**: `breakpoint/sarif_reporting.py`, `breakpoint/html_reporting.py`
+*   - **SARIF 2.1.0**: Perfect compliance for GitHub Security Center integration.
+*   - **Interactive HTML**: Provides deep-dive evidence, including leaked data samples and reproduction payloads.
 
 ---
 
@@ -45,54 +38,32 @@ The `Engine` is the heartbeat of the tool. It handles concurrency, safety gates,
 ### Phase 1: Logistic Checks
 Standard attacks like `header_security`, `reflection`, and `idor` run first to map the target.
 
-### Phase 2: Destructive Execution (`engine.py:147`)
+### Phase 2: Destructive Execution
 Resource-intensive attacks (Slowloris, XML Bombs, Extreme DoS) are deferred until Phase 2 to prevent early app crashes from skewing results.
-
-### Localhost Optimization (`engine.py:86`)
-```python
-if self._is_localhost:
-    limit = 25 if aggressive else 5
-    # Capping concurrency to prevent dev-server saturation
-    concurrency = limit
-```
 
 ---
 
 ## 3. Attack Arsenal Deep-Dive (Reference: `sqli.py`)
 Breakpoint uses **Differential Analysis** to confirm vulnerabilities.
 
-### SQL Injection Logic (`sqli.py:139`)
+### SQL Injection Logic
 Instead of just looking for errors, it performs timing and content-based tests:
 1.  **Time-Based Blind**: Measures the delta between baseline latency and injection latency.
-    ```python
-    if duration > 6.0 and duration > (baseline_latency * 5):
-        suspicious = True # Potential SQLi confirmed via wall-clock delay
-    ```
 2.  **Boolean Diffing**: Compares the HTTP response body of `True` vs `False` injections.
 
 ### RSC (React Server Components) Audit
 Breakpoint is the first industrial tool to audit **Flight Protocol** (`text/x-component`):
-*   **`rsc_server_action_forge`**: Checks if actions can be triggered by guessing the `Next-Action` ID.
-*   **`rsc_hydration_collapse`**: Manipulates the client state tree to leak admin components in the initial SSR payload.
+*   **Server Action Forgery**: Checks if actions can be triggered by guessing the `Next-Action` ID.
+*   **Hydration Collapse**: Manipulates the client state tree to leak admin components in the initial SSR payload.
 
 ---
 
-## 4. Industrial Reporting & Forensics
-### SARIF 2.1.0 (`sarif_reporting.py`)
-Generates 100% compliant SARIF logs for **GitHub Security Center**. Includes `verified_fix` snippets that appear as "Suggested Fixes" in PRs.
+## 4. Operational Safety Gates
+Breakpoint implements three tiers of safety to prevent accidental infrastructure damage:
 
-### Forensic Audit Log (`forensics.py`)
-Every packet sent is logged with a **Cryptographic Hash Chain**.
-*   **Chain Integrity**: `current_hash = SHA256(prev_hash + entry_str)`.
-*   **Legal/Ethical**: Provides an immutable record of authorized testing, signed with a session-specific HMAC key.
-
----
-
-## 5. Economic Failure Calculation (`economics.py`)
-Calculates the "Price of Vulnerability" based on:
-*   **Data Breach Cost**: (Records * Avg Cost per Record).
-*   **Outage Cost**: (Downtime * Revenue per Minute).
-*   **Legal Exposure**: Statutory fines for PII/PHI leakage.
+1.  **Mandatory Environment Context**: Scans MUST specify `--env <dev|staging|production>`.
+2.  **Production Hard-Gate**: Targeting "production" with `--aggressive` requires verified **PREMIUM** status.
+3.  **Localhost Optimization**: When scanning `localhost`, the engine automatically caps concurrency to **5 threads** to keep dev-servers from hanging.
 
 ---
 

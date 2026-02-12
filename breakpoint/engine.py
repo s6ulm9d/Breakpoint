@@ -7,9 +7,6 @@ import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from colorama import Fore, Style, init
 import os
-from .agents import AdversarialLoop
-from .sandbox import Sandbox
-from .stac import STaCEngine
 
 # IMPACT MAPPING: Translate technical findings to Business Impact (What broke?)
 ATTACK_IMPACTS = {
@@ -273,34 +270,6 @@ class Engine:
                     print(f" >> {str(leaked).strip()[:400]}...")
                 print(f" {Fore.RED}" + "-"*40 + f"{Style.RESET_ALL}\n")
             
-            # --- INDUSTRIAL ADDITION: SELF-HEALING & VERIFICATION ---
-            if not self.simulation:
-                print(f"{Fore.CYAN}[*] [+] ENGAGING SELF-HEALING INFRASTRUCTURE...")
-                
-                # 1. Adversarial Loop (Red vs Blue)
-                loop = AdversarialLoop(max_iterations=2)
-                # We need source code for CPG, but for now we focus on the logic
-                # In a real scenario, we'd grab code from the target if possible or local repo
-                patch, poc, finalized = loop.run(f"Vulnerability: {result.type}", "Source code not available for remote target.")
-                
-                if finalized:
-                    print(f"{Fore.GREEN}[+] [+] UNBREAKABLE PATCH GENERATED.")
-                    
-                    # 2. Sandbox Verification
-                    sandbox = Sandbox()
-                    if sandbox.is_healthy():
-                        print(f"[*] Verifying patch in Sandbox...")
-                        # Here we would apply patch to a victim and run the breaker PoC
-                        # verified, output = sandbox.execute_poc(poc)
-                    
-                    # 3. STaC (Security-Test-as-Code)
-                    stac = STaCEngine()
-                    if "api" in str(result.type).lower():
-                        test_file = stac.generate_api_test(result.type, f"{self.base_url}/{scenario.target.lstrip('/')}", {"method": scenario.method})
-                    else:
-                        test_file = stac.generate_playwright_test(result.type, f"{self.base_url}/{scenario.target.lstrip('/')}", {"method": scenario.method})
-                    print(f"{Fore.GREEN}[+] [+] REGRESSION TEST CREATED: {test_file}")
-
             print(f"{Fore.RED}" + "="*60 + f"{Style.RESET_ALL}\n")
 
     def _execute_scenario(self, s: Scenario) -> CheckResult:

@@ -3,7 +3,7 @@ FROM python:3.10-slim-buster
 
 # Metadata
 LABEL name="BREAKPOINT"
-LABEL version="2.0.0-ELITE"
+LABEL version="3.0.0-ELITE"
 LABEL description="Weaponized Audit Engine Container"
 LABEL maintainer="BREAKPOINT Team"
 

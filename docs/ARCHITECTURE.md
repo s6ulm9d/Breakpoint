@@ -47,7 +47,6 @@ Located in `breakpoint/attacks/`. Each plugin must implement a `check()` or `att
 
 ### D. Safety Locks
 - **Kill Switch**: Checks for `STOP.lock` file presence to immediately abort key operations.
-- **Economics**: Real-time liability estimation based on average downtime costs.
 
 ---
 

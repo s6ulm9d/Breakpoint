@@ -10,13 +10,6 @@ setup(
         "requests>=2.31.0",
         "pyyaml>=6.0.1",
         "colorama>=0.4.6",
-        "playwright>=1.48.0",
-        "docker>=7.0.0",
-        "temporalio>=1.6.0",
-        "sarif-om>=1.0.4",
-        "openai>=1.40.0",
-        "anthropic>=0.30.0",
-        "tree-sitter>=0.21.3",
     ],
     entry_points={
         "console_scripts": [
