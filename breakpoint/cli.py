@@ -16,6 +16,7 @@ import shutil
 import datetime
 import subprocess
 import requests
+import questionary
 from colorama import Fore, Style, init
 
 def signal_handler(sig, frame):
@@ -110,35 +111,21 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     
     # 1. ROBUST SHORTHAND & COMMAND HANDLING
-    # This handles "update", "scan <url>", "<url>", and even common mistakes like "--http..."
     if len(sys.argv) > 1:
-        # 1. Handle explicit commands that don't need --base-url transformation
-        # Add --login and --license-key to the list of skip-transformation flags
         skip_transformation = ["update", "--update", "--login", "--license-key", "--openai-key", "--version", "-v"]
-        
-        # Check if any of these are the FIRST argument
         if sys.argv[1] in skip_transformation:
             if sys.argv[1] == "update" or sys.argv[1] == "--update":
                 handle_update()
-            # For others like --login, we let argparse handle it naturally later
         else:
-            # Iterate and fix shorthand/mistakes for the target URL
             for i in range(1, len(sys.argv)):
                 arg = sys.argv[i]
-                
-                # If we hit an existing known flag, stop searching for the shorthand URL
                 if arg.startswith("-"):
                     continue
-
-                # Handle shorthand URL (starts with http)
                 if arg.startswith("http"):
-                    # Only insert if --base-url isn't already there
                     if "--base-url" not in sys.argv:
                         sys.argv[i] = arg
                         sys.argv.insert(i, "--base-url")
                     break
-                
-                # Handle "scan <url>"
                 if arg == "scan" and i + 1 < len(sys.argv):
                     sys.argv[i] = "--base-url"
                     break
@@ -160,6 +147,7 @@ def main():
     target_group.add_argument("--diff", action="store_true", help="Enable differential scan mode")
     target_group.add_argument("--git-range", help="Git range for differential analysis (e.g. HEAD~1..HEAD)")
     target_group.add_argument("--attacks", help="Comma-separated list of attack modules to run (Manual override)")
+    target_group.add_argument("--interactive", action="store_true", help="Select attack modules interactively via checkboxes")
     
     out_group = parser.add_argument_group("Reporting")
     out_group.add_argument("--json-report", help="Path to JSON output")
@@ -183,8 +171,6 @@ def main():
     # Handle license key flag (Non-interactive activation)
     if args.license_key:
         os.environ["BREAKPOINT_LICENSE_KEY"] = args.license_key
-        
-        # If ONLY the key is provided, validate and persist it
         if not args.base_url and not args.login:
             from .licensing import VALIDATION_ENDPOINT, save_license_key, _get_cache_dir
             print(f"[*] Activating with License Key...")
@@ -199,8 +185,6 @@ def main():
                     tier = data.get("type", data.get("tier", "FREE"))
                     print(f"[+] Success! {tier} license activated and saved.")
                     save_license_key(args.license_key)
-                    
-                    # Clear cache
                     cache_file = os.path.join(_get_cache_dir(), "license_cache.json")
                     if os.path.exists(cache_file): os.remove(cache_file)
                     sys.exit(0)
@@ -219,7 +203,7 @@ def main():
         else:
             sys.exit(1)
 
-    # 0. MANDATORY LOGIN CHECK (For new installations / Every run)
+    # 0. MANDATORY LOGIN CHECK
     if args.login:
         if login_flow():
             sys.exit(0)
@@ -231,8 +215,6 @@ def main():
         print(f"\n{Fore.YELLOW}[!] LOGIN REQUIRED: Breakpoint requires a connected account.{Style.RESET_ALL}")
         print("[!] Visit https://breakpoint-web-one.vercel.app to register.")
         print("[!] Run 'breakpoint --login' to connect your account.")
-        
-        # If interactive, ask if they want to login now
         if sys.stdin.isatty():
              choice = input("\n[?] Would you like to log in now? (y/n): ").lower()
              if choice == 'y':
@@ -243,8 +225,6 @@ def main():
 
     if unknown:
         print(f"[!] Error: Unknown arguments detected: {unknown}")
-        if any("BRK-" in u for u in unknown):
-             print("[!] Tip: It looks like you're trying to pass a license key directly. Use '--license-key <KEY>' instead.")
         sys.exit(1)
 
     if not args.base_url:
@@ -260,7 +240,6 @@ def main():
         if not check_access("aggressive"):
             print(get_denial_message("aggressive"))
             sys.exit(1)
-
     if args.env == "production":
         if not check_access("production"):
             print(get_denial_message("production"))
@@ -275,7 +254,6 @@ def main():
     # Defaults
     if args.concurrency is None:
         args.concurrency = 200 if args.aggressive else 50
-        
     global_headers = {}
     if args.headers:
         for h in args.headers:
@@ -296,24 +274,18 @@ def main():
     print(f"{Fore.RED}       \"Production is already broken.\"{Style.RESET_ALL}\n")
 
     check_internet_connectivity()
-
     tier = get_license_tier()
     print(f"[*] LICENSE: {tier} EDITION")
-
     logger = ForensicLogger()
     print(f"[*] Forensic Audit Log Initialized: {logger.log_file}")
     
-    # Scenarios Logic
-    # 0. AUTO-INIT WORKSPACE (Silent)
     app_data = get_app_data_dir()
     config_path = os.path.join(app_data, "omni_attack_all.yaml")
-    
     try:
         src = get_default_scenarios_path()
         if os.path.exists(src):
             shutil.copy(src, config_path)
-    except Exception:
-        pass
+    except Exception: pass
 
     scenarios_path = args.scenarios
     if not scenarios_path:
@@ -322,37 +294,54 @@ def main():
 
     try:
         scenarios = load_scenarios(scenarios_path)
-        
-        # --- NEW: AI & MANUAL FILTERING LOGIC ---
-        available_module_ids = list(set([s.type for s in scenarios]))
+        available_module_ids = sorted(list(set([s.type for s in scenarios])))
         selected_module_ids = available_module_ids
 
-        # 1. Manual selection (--attacks)
-        if args.attacks:
+        # --- 1. INTERACTIVE CHECKBOX SELECTION ---
+        if args.interactive:
+            print("\n[*] Initializing Interactive Attack Selector...")
+            choices = [questionary.Choice(m, checked=True) for m in available_module_ids]
+            selected_module_ids = questionary.checkbox(
+                "Select attack modules to enable:",
+                choices=choices,
+                style=questionary.Style([
+                    ('qmark', 'fg:#ff5f00 bold'),
+                    ('question', 'bold'),
+                    ('answer', 'fg:#00afff bold'),
+                    ('pointer', 'fg:#00afff bold'),
+                    ('selected', 'fg:#00afff'),
+                    ('checkbox', 'fg:#00afff'),
+                    ('separator', 'fg:#6c6c6c'),
+                    ('instruction', 'fg:#6c6c6c italic'),
+                ])
+            ).ask()
+            
+            if not selected_module_ids:
+                print(f"{Fore.YELLOW}[!] No modules selected. Aborting run.{Style.RESET_ALL}")
+                sys.exit(0)
+            print(f"[+] Interactive Mode: Running {len(selected_module_ids)} manually selected modules.")
+
+        # --- 2. MANUAL CLI OVERRIDE ---
+        elif args.attacks:
             requested = [a.strip().lower() for a in args.attacks.split(',')]
             selected_module_ids = [m for m in selected_module_ids if m in requested]
             print(f"[*] Manual override: Selected {len(selected_module_ids)} modules.")
 
-        # 2. AI Project Analysis
-        analyzer = AIAnalyzer()
-        if get_openai_key() and not args.attacks:
+        # --- 3. AI PROJECT ANALYSIS ---
+        elif get_openai_key():
+            analyzer = AIAnalyzer()
             if args.source:
-                # Analyze source code
                 selected_module_ids = analyzer.analyze_source_code(args.source, available_module_ids)
             else:
-                # Analyze live target
                 selected_module_ids = analyzer.analyze_target_url(args.base_url, available_module_ids)
-            
-            # Ensure we always have something to run
             if not selected_module_ids:
                 selected_module_ids = available_module_ids
                 print("    [!] AI suggested 0 modules. Defaulting to full scan.")
 
-        # 3. Apply Filtering
         original_count = len(scenarios)
         scenarios = [s for s in scenarios if s.type in selected_module_ids]
         if len(scenarios) < original_count:
-            print(f"[+] AI/Manual Filter: Running {len(scenarios)} relevant scenarios (from {original_count}).")
+            print(f"[+] Final Filter: Running {len(scenarios)} scenarios (from {original_count}).")
 
     except Exception as e:
         print(f"\n[!!!] FATAL: Failed to load/filter scenarios: {e}")
@@ -363,81 +352,50 @@ def main():
         if args.env == "production":
              print(f"\n{Fore.RED}" + "#"*60)
              print(" CRITICAL: TARGETING PRODUCTION ENVIRONMENT")
-             print(" DESTRUCTIVE MODES ENABLED")
-             print(" ############################################################")
-             print(" You are about to unleash aggressive attacks against a PRODUCTION system.")
-             print(" #"*60 + f"{Style.RESET_ALL}\n")
-             
+             print(" DESTRUCTIVE MODES ENABLED\n" + "#"*60 + f"{Style.RESET_ALL}\n")
              if not args.force_live_fire:
                   if sys.stdin.isatty():
                       print(f"Type {Fore.RED}'I AUTHORIZE DESTRUCTION'{Style.RESET_ALL} to proceed:")
-                      if input().strip() != "I AUTHORIZE DESTRUCTION":
-                         sys.exit(1)
-                  else:
-                      sys.exit(1)
-
+                      if input().strip() != "I AUTHORIZE DESTRUCTION": sys.exit(1)
+                  else: sys.exit(1)
         elif sys.stdin.isatty() and not args.force_live_fire:
-            print(f"\n{Fore.RED}" + "!"*60)
-            print(" WARNING: DESTRUCTIVE MODE ENABLED")
-            print("!"*60 + f"{Style.RESET_ALL}")
+            print(f"\n{Fore.RED}" + "!"*60 + "\n WARNING: DESTRUCTIVE MODE ENABLED\n" + "!"*60 + f"{Style.RESET_ALL}")
             print(f"\nType {Fore.RED}'I AUTHORIZE DESTRUCTION'{Style.RESET_ALL} to proceed:")
-            if input().strip() != "I AUTHORIZE DESTRUCTION":
-                sys.exit(1)
-
+            if input().strip() != "I AUTHORIZE DESTRUCTION": sys.exit(1)
         print(f"\n{Fore.GREEN}[+] DESTRUCTION AUTHORIZED. UNLEASHING CHAOS...{Style.RESET_ALL}\n")
         logger.log_override_event(mode="AGGRESSIVE", target=args.base_url, env=args.env)
 
     engine = Engine(
-        base_url=args.base_url, 
-        forensic_log=logger, 
-        verbose=args.verbose, 
-        headers=global_headers, 
-        simulation=args.simulation,
-        source_path=args.source,
-        diff_mode=args.diff,
-        git_range=args.git_range
+        base_url=args.base_url, forensic_log=logger, 
+        verbose=args.verbose, headers=global_headers, 
+        simulation=args.simulation, source_path=args.source,
+        diff_mode=args.diff, git_range=args.git_range
     )
-    
     if args.aggressive:
          for s in scenarios:
-            if hasattr(s, 'config'):
-                s.config['aggressive'] = True
+            if hasattr(s, 'config'): s.config['aggressive'] = True
 
     iteration = 0
     while True:
         iteration += 1
         if args.continuous:
              print(f"\n{Fore.YELLOW}=== ITERATION #{iteration} ==={Style.RESET_ALL}")
-             
         try:
-            print(f"[*] TARGET: {args.base_url}")
-            print(f"[*] ENV: {args.env.upper()}")
-            print(f"[*] MODE: {'SIMULATION' if args.simulation else 'EXECUTION'}")
-            print(f"[*] PAYLOADS: {len(scenarios)}")
-            
+            print(f"[*] TARGET: {args.base_url}\n[*] ENV: {args.env.upper()}\n[*] MODE: {'SIMULATION' if args.simulation else 'EXECUTION'}\n[*] PAYLOADS: {len(scenarios)}")
             results = engine.run_all(scenarios, concurrency=args.concurrency)
-            
         except Exception as e:
             print(f"\n[!!!] CRITICAL FAILURE: {e}")
             logger.log_event("CRASH", {"error": str(e)})
             sys.exit(1)
-
         integrity = logger.sign_run()
-        
         reporter = ConsoleReporter()
         reporter.print_summary(results)
-        
         forensic_meta = {"run_id": integrity["run_id"], "final_hash": integrity["final_hash"], "signature": integrity["signature"], "target": args.base_url, "iteration": iteration}
-
         if args.json_report: generate_json_report(results, args.json_report)
         if args.html_report: HtmlReporter(args.html_report).generate(results, forensic_meta)
         if args.sarif_report: SarifReporter(args.sarif_report).generate(results)
-        
         if not args.continuous: break
-        
-        import time
-        if args.interval > 0: time.sleep(args.interval)
-
+        if args.interval > 0: import time; time.sleep(args.interval)
     sys.exit(0)
 
 if __name__ == "__main__":

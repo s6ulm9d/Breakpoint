@@ -10,6 +10,7 @@ setup(
         "requests>=2.31.0",
         "pyyaml>=6.0.1",
         "colorama>=0.4.6",
+        "questionary>=2.0.1",
     ],
     entry_points={
         "console_scripts": [
