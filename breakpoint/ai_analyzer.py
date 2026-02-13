@@ -20,7 +20,11 @@ class AIAnalyzer:
         print(f"[*] AI Phase: Analyzing source code at {source_path}...")
         
         # Collect a summary of the codebase (file structure, key imports, etc.)
-        code_summary = self._summarize_directory(source_path)
+        summary_data = self._summarize_directory(source_path)
+        code_summary = summary_data["summary"]
+        file_count = summary_data["count"]
+        
+        print(f"    -> Summarized {file_count} relevant source files.")
         
         prompt = (
             f"You are a senior security researcher. Given the following summary of a project's source code, "
@@ -29,6 +33,9 @@ class AIAnalyzer:
             f"Respond with ONLY a JSON list of module IDs that should be enabled. "
             f"Explain nothing else."
         )
+
+        if os.environ.get("BREAKPOINT_VERBOSE") == "1":
+            print(f"\n[DEBUG] AI Prompt:\n{prompt}\n")
 
         recommended = self._call_ai(prompt)
         if recommended:
@@ -94,20 +101,44 @@ class AIAnalyzer:
                     result = result.split("```")[1].split("```")[0].strip()
                 
                 return json.loads(result)
+            else:
+                print(f"    [!] AI API Error (Status {resp.status_code}): {resp.text}")
         except Exception as e:
-            print(f"    [!] AI API Error: {e}")
+            print(f"    [!] AI API Exception: {e}")
         return None
 
-    def _summarize_directory(self, path: str) -> str:
+    def _summarize_directory(self, path: str) -> Dict[str, Any]:
         summary = []
         file_count = 0
+        exclude_dirs = {'.venv', 'venv', 'node_modules', '.git', '__pycache__', 'dist', 'build'}
+        
         for root, dirs, files in os.walk(path):
+            # Prune excluded directories
+            dirs[:] = [d for d in dirs if d not in exclude_dirs]
+            
             if file_count > 50: break # Safety cap
             for file in files:
                 if file.endswith(('.py', '.js', '.ts', '.go', '.java', '.php', '.yaml', '.yml', '.env')):
+                    # Prioritize "interesting" security files
+                    priority = 0
+                    lower_file = file.lower()
+                    if any(x in lower_file for x in ['auth', 'route', 'api', 'ctrl', 'controller', 'config', 'middleware']):
+                        priority = 1
+                    
                     file_count += 1
                     rel_path = os.path.relpath(os.path.join(root, file), path)
-                    with open(os.path.join(root, file), 'r', errors='ignore') as f:
-                        content = f.read(500) # Peek first 500 chars for imports/tech
-                    summary.append(f"File: {rel_path}\nSnippet: {content}...")
-        return "\n\n".join(summary)
+                    try:
+                        with open(os.path.join(root, file), 'r', errors='ignore') as f:
+                            content = f.read(1024) # Increased to 1KB for better context
+                        summary.append((priority, f"File: {rel_path}\nSnippet: {content}..."))
+                    except:
+                        continue
+        
+        # Sort by priority so AI sees important files first
+        summary.sort(key=lambda x: x[0], reverse=True)
+        final_summary = [s[1] for s in summary]
+
+        return {
+            "summary": "\n\n".join(final_summary),
+            "count": file_count
+        }

@@ -1,16 +1,41 @@
 import os
 import json
+import requests
 from typing import List, Dict, Any, Optional
+from .licensing import get_openai_key
 
 class BaseAgent:
-    def __init__(self, name: str, system_prompt: str):
+    def __init__(self, name: str, system_prompt: str, api_key: str = None):
         self.name = name
         self.system_prompt = system_prompt
+        self.api_key = api_key or get_openai_key()
+        self.api_url = "https://api.openai.com/v1/chat/completions"
 
     def chat(self, user_input: str) -> str:
-        # Placeholder for LLM interaction
-        # In a real deployment, this connects to OpenAI/Anthropic/Local LLM
-        return f"[MOCK {self.name}] Response to: {user_input[:20]}..."
+        if not self.api_key:
+            return f"[MOCK {self.name}] (Key missing): Response to {user_input[:20]}..."
+        
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "model": "gpt-4o-mini",
+            "messages": [
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": user_input}
+            ],
+            "temperature": 0.2
+        }
+
+        try:
+            resp = requests.post(self.api_url, headers=headers, json=data, timeout=45)
+            if resp.status_code == 200:
+                return resp.json()['choices'][0]['message']['content'].strip()
+            else:
+                return f"[ERROR {self.name}] API Status {resp.status_code}: {resp.text[:100]}"
+        except Exception as e:
+            return f"[ERROR {self.name}] Exception: {str(e)}"
 
 class BreakerAgent(BaseAgent):
     def __init__(self):

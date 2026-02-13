@@ -167,6 +167,9 @@ def main():
     parser.add_argument("--headers", action="append", help="Global headers (Key:Value)")
     
     args, unknown = parser.parse_known_args()
+    
+    if args.verbose:
+        os.environ["BREAKPOINT_VERBOSE"] = "1"
 
     # Handle license key flag (Non-interactive activation)
     if args.license_key:
