@@ -10,7 +10,7 @@ PyInstaller.__main__.run([
     'breakpoint/cli.py',
     '--name', 'breakpoint',
     '--onefile',
-    '--add-data', 'breakpoint/default_scenarios.yaml;breakpoint',
+    '--add-data', 'breakpoint/omni_attack_all.yaml;breakpoint',
     '--hidden-import', 'breakpoint',
     '--clean',
     '--log-level', 'WARN',

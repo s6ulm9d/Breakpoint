@@ -51,12 +51,12 @@ def get_documents_dir():
     return path
 
 def get_default_scenarios_path():
-    """Resolves path to embedded default_scenarios.yaml"""
+    """Resolves path to embedded omni_attack_all.yaml"""
     if getattr(sys, 'frozen', False):
         base_path = sys._MEIPASS
-        return os.path.join(base_path, 'breakpoint', 'default_scenarios.yaml')
+        return os.path.join(base_path, 'breakpoint', 'omni_attack_all.yaml')
     else:
-        return os.path.join(os.path.dirname(__file__), 'default_scenarios.yaml')
+        return os.path.join(os.path.dirname(__file__), 'omni_attack_all.yaml')
 
 def handle_update():
     print("[*] Checking for updates...")
@@ -155,6 +155,9 @@ def main():
     target_group.add_argument("--base-url", help="Target URL")
     target_group.add_argument("--scenarios", help="Path to YAML scenarios file")
     target_group.add_argument("--force-live-fire", action="store_true", help="Bypass safety checks")
+    target_group.add_argument("--source", help="Path to source code for static analysis")
+    target_group.add_argument("--diff", action="store_true", help="Enable differential scan mode")
+    target_group.add_argument("--git-range", help="Git range for differential analysis (e.g. HEAD~1..HEAD)")
     
     out_group = parser.add_argument_group("Reporting")
     out_group.add_argument("--json-report", help="Path to JSON output")
@@ -292,7 +295,7 @@ def main():
     # Scenarios Logic
     # 0. AUTO-INIT WORKSPACE (Silent)
     app_data = get_app_data_dir()
-    config_path = os.path.join(app_data, "default_scenarios.yaml")
+    config_path = os.path.join(app_data, "omni_attack_all.yaml")
     
     try:
         src = get_default_scenarios_path()
@@ -341,7 +344,16 @@ def main():
         print(f"\n{Fore.GREEN}[+] DESTRUCTION AUTHORIZED. UNLEASHING CHAOS...{Style.RESET_ALL}\n")
         logger.log_override_event(mode="AGGRESSIVE", target=args.base_url, env=args.env)
 
-    engine = Engine(base_url=args.base_url, forensic_log=logger, verbose=args.verbose, headers=global_headers, simulation=args.simulation)
+    engine = Engine(
+        base_url=args.base_url, 
+        forensic_log=logger, 
+        verbose=args.verbose, 
+        headers=global_headers, 
+        simulation=args.simulation,
+        source_path=args.source,
+        diff_mode=args.diff,
+        git_range=args.git_range
+    )
     
     if args.aggressive:
          for s in scenarios:

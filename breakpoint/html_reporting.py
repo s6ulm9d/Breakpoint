@@ -83,14 +83,14 @@ class HtmlReporter:
         </div>
         <div class="card">
              <h3>Severity Breakdown</h3>
-             <small>Failed Scenarios: {failed}</small>
+             <small>Confirmed: {sum(1 for r in results if r.status == 'CONFIRMED')} | Suspect: {sum(1 for r in results if r.status == 'SUSPECT')}</small>
              <div style="margin-top: 10px;">
                 <div style="height: 10px; background: #333; border-radius: 5px; overflow: hidden; display: flex;">
                     <div style="width: {resilience_score}%; background: var(--pass);"></div>
                     <div style="width: {100-resilience_score}%; background: var(--crit);"></div>
                 </div>
-                </div>
              </div>
+        </div>
              
              <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 10px; font-size: 0.8rem; opacity: 0.6;">
                 <strong>Scoring Thresholds:</strong><br>
@@ -115,7 +115,8 @@ class HtmlReporter:
     </div>
     """
 
-    # COMPLIANCE CALCULATIONS
+    
+        # COMPLIANCE CALCULATIONS
         compliance_map = {
             "OWASP_2021": {"tested": set(), "failed": set()},
             "NIST_800_53": {"tested": set(), "failed": set()},
@@ -127,7 +128,8 @@ class HtmlReporter:
             meta = get_metadata(atype)
             comp_data = meta.get("compliance", {})
             
-            is_fail = (r.status == "VULNERABLE")
+            # Count anything not explicitly SECURE/PASSED as a fail for compliance visibility unless skipped
+            is_fail = (r.status in ["VULNERABLE", "CONFIRMED", "SUSPECT"])
             
             for std, control in comp_data.items():
                 if std in compliance_map:
@@ -155,24 +157,33 @@ class HtmlReporter:
             if std == "PCI_DSS_4.0": icon = "💳"
             if std == "NIST_800_53": icon = "🏛️"
 
+            # Create failure list HTML safely
+            fail_list_html = ""
+            if failed > 0:
+                fails = ", ".join(list(data["failed"])[:5])
+                if len(data['failed']) > 5: fails += "..."
+                fail_list_html = f'<div style="color: var(--crit);">❌ Failed: {fails}</div>'
+            else:
+                fail_list_html = '<div style="color: var(--pass);">✅ All Mapped Controls Passed</div>'
+
             compliance_html += f"""
             <div class="card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                    <h3 style="margin:0;">{{icon}} {{std.replace('_', ' ')}}</h3>
-                    <div style="font-size: 1.2rem; font-weight: bold; color: {{'var(--pass)' if score == 100 else 'var(--crit)'}};">
-                        {{score:.0f}}%
+                    <h3 style="margin:0;">{icon} {std.replace('_', ' ')}</h3>
+                    <div style="font-size: 1.2rem; font-weight: bold; color: {'var(--pass)' if score == 100 else 'var(--crit)'};">
+                        {score:.0f}%
                     </div>
                 </div>
                 <div style="font-size: 0.9rem; opacity: 0.8; margin-bottom: 8px;">
-                     Controls Tested: <strong>{{total}}</strong>
+                     Controls Tested: <strong>{total}</strong>
                 </div>
                  <div style="height: 6px; background: #333; border-radius: 3px; overflow: hidden; display: flex; margin-bottom: 15px;">
-                    <div style="width: {{score}}%; background: var(--pass);"></div>
-                    <div style="width: {{100-score}}%; background: var(--crit);"></div>
+                    <div style="width: {score}%; background: var(--pass);"></div>
+                    <div style="width: {100-score}%; background: var(--crit);"></div>
                 </div>
                 
                 <div style="font-size: 0.85rem;">
-                    {{f'<div style="color: var(--crit);">❌ Failed: {{", ".join(list(data["failed"])[:5])}}' + ('...' if len(data['failed'])>5 else '') + '</div>' if failed > 0 else '<div style="color: var(--pass);">✅ All Mapped Controls Passed</div>'}}
+                    {fail_list_html}
                 </div>
             </div>
             """
@@ -185,7 +196,7 @@ class HtmlReporter:
     <h2>🔥 Critical Findings</h2>
     """
     
-        vulnerabilities = [r for r in results if r.status == "VULNERABLE"]
+        vulnerabilities = [r for r in results if r.status in ["VULNERABLE", "CONFIRMED", "SUSPECT"]]
         
         if not vulnerabilities:
              html += """<div class="card" style="text-align: center; color: var(--pass);"><h3>✅ No Critical Vulnerabilities Found</h3></div>"""
@@ -279,9 +290,11 @@ class HtmlReporter:
         for r in results:
             status = r.status
             color_style = ""
-            if status == "VULNERABLE": color_style = "color: var(--crit); font-weight: bold;"
+            if status == "CONFIRMED": color_style = "color: var(--crit); font-weight: bold; text-shadow: 0 0 10px rgba(218, 54, 51, 0.4);"
+            elif status == "SUSPECT": color_style = "color: var(--high); font-weight: bold;"
+            elif status == "VULNERABLE": color_style = "color: var(--crit);" # Legacy/Unverified
             elif status == "PASSED": color_style = "color: var(--pass);"
-            elif status == "SKIPPED": color_style = "color: var(--high);" # Yellow
+            elif status == "SKIPPED": color_style = "color: #888;"
             elif status == "SECURE": color_style = "color: var(--pass);"
             
             # Clean details for table

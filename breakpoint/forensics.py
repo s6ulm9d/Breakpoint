@@ -18,8 +18,7 @@ class ForensicLogger:
         self.log_file = f"audit_{self.run_id}.log"
         self.events = []
         
-        # In a real heavy system, this key would be in an HSM or secure vault.
-        # We generate a session key for this run's integrity.
+        # Session Key (Simulated HSM/Vault retrieval)
         self.session_key = os.urandom(32).hex()
 
         self._write_entry("RUN_START", {"timestamp": self.start_time, "run_id": self.run_id})
@@ -36,13 +35,17 @@ class ForensicLogger:
             "prev_hash": self.chain_hash
         }
         
-        # Serialize for hashing
+        # Serialize for hashing (Deterministic JSON)
         entry_str = json.dumps(entry, sort_keys=True)
         
         # Update Chain: Hash(Prev_Hash + Current_Entry_Str)
         self.chain_hash = hashlib.sha256((self.chain_hash + entry_str).encode()).hexdigest()
         
+        # HMAC Signing (Forensic Proof)
+        signature = hmac.new(self.session_key.encode(), entry_str.encode(), hashlib.sha256).hexdigest()
+        
         entry["current_hash"] = self.chain_hash
+        entry["signature"] = signature
         self.events.append(entry)
         
         # Persist immediately to disk (Audit Trail)
@@ -50,6 +53,13 @@ class ForensicLogger:
             f.write(json.dumps(entry) + "\n")
             
         return self.chain_hash
+
+    def verify_chain(self, log_file):
+        """
+        Verifies the integrity of a log file.
+        """
+        # Implementation would read file line by line and re-hash to match chain
+        pass
 
     def sign_run(self):
         """
@@ -75,8 +85,11 @@ class ForensicLogger:
         This must never be skipped when gates are opened.
         """
         if not operator_context:
-            import platform, os
-            operator_context = f"{os.environ.get('USERNAME')}@{platform.node()} (PID: {os.getpid()})"
+            try:
+                import platform
+                operator_context = f"{os.environ.get('USERNAME')}@{platform.node()} (PID: {os.getpid()})"
+            except:
+                operator_context = "UNKNOWN"
             
         data = {
             "mode": mode,
@@ -86,4 +99,3 @@ class ForensicLogger:
             "status": "OVERRIDE_AUTHORIZED"
         }
         self.log_event("SAFETY_OVERRIDE", data)
-
