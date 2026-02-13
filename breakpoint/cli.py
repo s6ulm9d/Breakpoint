@@ -276,6 +276,12 @@ def main():
     check_internet_connectivity()
     tier = get_license_tier()
     print(f"[*] LICENSE: {tier} EDITION")
+    
+    # 0. Global API Key Reminder
+    if not get_openai_key():
+         print(f"{Fore.YELLOW}[!] INFO: OpenAI API key not set. AI-driven project analysis is disabled.{Style.RESET_ALL}")
+         print(f"{Fore.YELLOW}[!] Run 'breakpoint --openai-key <KEY>' to enable smart module filtering.{Style.RESET_ALL}\n")
+
     logger = ForensicLogger()
     print(f"[*] Forensic Audit Log Initialized: {logger.log_file}")
     
@@ -297,46 +303,53 @@ def main():
         available_module_ids = sorted(list(set([s.type for s in scenarios])))
         selected_module_ids = available_module_ids
 
-        # --- 1. INTERACTIVE CHECKBOX SELECTION ---
-        if args.interactive:
-            print("\n[*] Initializing Interactive Attack Selector...")
-            choices = [questionary.Choice(m, checked=True) for m in available_module_ids]
-            selected_module_ids = questionary.checkbox(
-                "Select attack modules to enable:",
-                choices=choices,
-                style=questionary.Style([
-                    ('qmark', 'fg:#ff5f00 bold'),
-                    ('question', 'bold'),
-                    ('answer', 'fg:#00afff bold'),
-                    ('pointer', 'fg:#00afff bold'),
-                    ('selected', 'fg:#00afff'),
-                    ('checkbox', 'fg:#00afff'),
-                    ('separator', 'fg:#6c6c6c'),
-                    ('instruction', 'fg:#6c6c6c italic'),
-                ])
-            ).ask()
-            
-            if not selected_module_ids:
-                print(f"{Fore.YELLOW}[!] No modules selected. Aborting run.{Style.RESET_ALL}")
-                sys.exit(0)
-            print(f"[+] Interactive Mode: Running {len(selected_module_ids)} manually selected modules.")
-
-        # --- 2. MANUAL CLI OVERRIDE ---
-        elif args.attacks:
-            requested = [a.strip().lower() for a in args.attacks.split(',')]
-            selected_module_ids = [m for m in selected_module_ids if m in requested]
-            print(f"[*] Manual override: Selected {len(selected_module_ids)} modules.")
-
-        # --- 3. AI PROJECT ANALYSIS ---
-        elif get_openai_key():
-            analyzer = AIAnalyzer()
-            if args.source:
-                selected_module_ids = analyzer.analyze_source_code(args.source, available_module_ids)
+        # --- 1. MANUAL SELECTION (Bypasses AI completely) ---
+        if args.interactive or args.attacks:
+            if args.interactive:
+                print("\n[*] Initializing Interactive Attack Selector...")
+                choices = [questionary.Choice(m, checked=True) for m in available_module_ids]
+                selected_module_ids = questionary.checkbox(
+                    "Select attack modules to enable:",
+                    choices=choices,
+                    style=questionary.Style([
+                        ('qmark', 'fg:#ff5f00 bold'),
+                        ('question', 'bold'),
+                        ('answer', 'fg:#00afff bold'),
+                        ('pointer', 'fg:#00afff bold'),
+                        ('selected', 'fg:#00afff'),
+                        ('checkbox', 'fg:#00afff'),
+                        ('separator', 'fg:#6c6c6c'),
+                        ('instruction', 'fg:#6c6c6c italic'),
+                    ])
+                ).ask()
+                
+                if not selected_module_ids:
+                    print(f"{Fore.YELLOW}[!] No modules selected. Aborting run.{Style.RESET_ALL}")
+                    sys.exit(0)
+                print(f"[+] Interactive Mode: Running {len(selected_module_ids)} manually selected modules.")
             else:
-                selected_module_ids = analyzer.analyze_target_url(args.base_url, available_module_ids)
+                requested = [a.strip().lower() for a in args.attacks.split(',')]
+                selected_module_ids = [m for m in selected_module_ids if m in requested]
+                print(f"[*] Manual override: Selected {len(selected_module_ids)} modules.")
+
+        # --- 2. AI SOURCE ANALYSIS (Only if --source is provided) ---
+        elif args.source:
+            openai_key = get_openai_key()
+            if not openai_key:
+                print(f"\n{Fore.RED}[!] ERROR: AI analysis of source code requires an OpenAI API key.{Style.RESET_ALL}")
+                print("[!] Please set your key first: 'breakpoint --openai-key <YOUR_KEY>'")
+                sys.exit(1)
+            
+            analyzer = AIAnalyzer()
+            selected_module_ids = analyzer.analyze_source_code(args.source, available_module_ids)
             if not selected_module_ids:
                 selected_module_ids = available_module_ids
                 print("    [!] AI suggested 0 modules. Defaulting to full scan.")
+
+        # --- 3. LIVE URL / DEPLOYED (AI Deactivated to save time) ---
+        else:
+            # AI is deactivated for live URLs without source access to save time/tokens as requested
+            selected_module_ids = available_module_ids
 
         original_count = len(scenarios)
         scenarios = [s for s in scenarios if s.type in selected_module_ids]
