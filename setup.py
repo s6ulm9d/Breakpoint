@@ -11,6 +11,7 @@ setup(
         "pyyaml>=6.0.1",
         "colorama>=0.4.6",
         "questionary>=2.0.1",
+        "docker>=6.1.3",
     ],
     entry_points={
         "console_scripts": [

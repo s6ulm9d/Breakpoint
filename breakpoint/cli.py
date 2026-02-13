@@ -353,6 +353,12 @@ def main():
 
         original_count = len(scenarios)
         scenarios = [s for s in scenarios if s.type in selected_module_ids]
+        
+        if not scenarios:
+            print(f"\n{Fore.RED}[!] ERROR: No valid attack scenarios remain after filtering.{Style.RESET_ALL}")
+            print(f"[!] Please check your --attacks input or selection.")
+            sys.exit(1)
+
         if len(scenarios) < original_count:
             print(f"[+] Final Filter: Running {len(scenarios)} scenarios (from {original_count}).")
 
