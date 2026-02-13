@@ -300,7 +300,8 @@ def main():
 
     try:
         scenarios = load_scenarios(scenarios_path)
-        available_module_ids = sorted(list(set([s.type for s in scenarios])))
+        # Fix: Collect the actual attack modules (attack_type), not the scenario category (simple/flow)
+        available_module_ids = sorted(list(set([getattr(s, 'attack_type', s.type) for s in scenarios])))
         selected_module_ids = available_module_ids
 
         # --- 1. MANUAL SELECTION (Bypasses AI completely) ---
@@ -352,7 +353,8 @@ def main():
             selected_module_ids = available_module_ids
 
         original_count = len(scenarios)
-        scenarios = [s for s in scenarios if s.type in selected_module_ids]
+        # Fix: Filter based on the actual attack module ID
+        scenarios = [s for s in scenarios if getattr(s, 'attack_type', s.type) in selected_module_ids]
         
         if not scenarios:
             print(f"\n{Fore.RED}[!] ERROR: No valid attack scenarios remain after filtering.{Style.RESET_ALL}")
