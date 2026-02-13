@@ -1,12 +1,13 @@
-from breakpoint.html_reporting import HtmlReporter
-from breakpoint.sarif_reporting import SarifReporter
-from breakpoint.engine import Engine
-from breakpoint.scenarios import load_scenarios
-from breakpoint.reporting import ConsoleReporter, generate_json_report
-from breakpoint.metadata import get_metadata
-from breakpoint.safety_lock import SafetyLock
-from breakpoint.forensics import ForensicLogger
-from breakpoint.licensing import check_access, get_denial_message, get_license_tier, login_flow, get_license_key
+from .html_reporting import HtmlReporter
+from .sarif_reporting import SarifReporter
+from .engine import Engine
+from .scenarios import load_scenarios
+from .reporting import ConsoleReporter, generate_json_report
+from .metadata import get_metadata
+from .safety_lock import SafetyLock
+from .forensics import ForensicLogger
+from .ai_analyzer import AIAnalyzer
+from .licensing import check_access, get_denial_message, get_license_tier, login_flow, get_license_key, get_openai_key, save_openai_key
 import argparse
 import sys
 import os
@@ -19,7 +20,7 @@ from colorama import Fore, Style, init
 
 def signal_handler(sig, frame):
     print("\n[!] Force Quitting (Ctrl+C detected)...")
-    from breakpoint.engine import Engine
+    from .engine import Engine
     Engine.SHUTDOWN_SIGNAL = True
     sys.stdout.flush()
     os._exit(0)
@@ -113,7 +114,7 @@ def main():
     if len(sys.argv) > 1:
         # 1. Handle explicit commands that don't need --base-url transformation
         # Add --login and --license-key to the list of skip-transformation flags
-        skip_transformation = ["update", "--update", "--login", "--license-key", "--version", "-v"]
+        skip_transformation = ["update", "--update", "--login", "--license-key", "--openai-key", "--version", "-v"]
         
         # Check if any of these are the FIRST argument
         if sys.argv[1] in skip_transformation:
@@ -155,9 +156,10 @@ def main():
     target_group.add_argument("--base-url", help="Target URL")
     target_group.add_argument("--scenarios", help="Path to YAML scenarios file")
     target_group.add_argument("--force-live-fire", action="store_true", help="Bypass safety checks")
-    target_group.add_argument("--source", help="Path to source code for static analysis")
+    target_group.add_argument("--source", help="Path to source code for static analysis and AI project review")
     target_group.add_argument("--diff", action="store_true", help="Enable differential scan mode")
     target_group.add_argument("--git-range", help="Git range for differential analysis (e.g. HEAD~1..HEAD)")
+    target_group.add_argument("--attacks", help="Comma-separated list of attack modules to run (Manual override)")
     
     out_group = parser.add_argument_group("Reporting")
     out_group.add_argument("--json-report", help="Path to JSON output")
@@ -172,7 +174,8 @@ def main():
     conf_group.add_argument("--verbose", action="store_true")
     conf_group.add_argument("--continuous", action="store_true")
     conf_group.add_argument("--interval", type=int, default=0)
-    parser.add_argument("--license-key", help="Specify subscription key (Alternative to BREAKPOINT_LICENSE_KEY env)")
+    parser.add_argument("--license-key", help="Specify subscription key")
+    parser.add_argument("--openai-key", help="Set or update OpenAI API key for AI-driven project analysis")
     parser.add_argument("--headers", action="append", help="Global headers (Key:Value)")
     
     args, unknown = parser.parse_known_args()
@@ -183,7 +186,7 @@ def main():
         
         # If ONLY the key is provided, validate and persist it
         if not args.base_url and not args.login:
-            from breakpoint.licensing import VALIDATION_ENDPOINT, save_license_key, _get_cache_dir
+            from .licensing import VALIDATION_ENDPOINT, save_license_key, _get_cache_dir
             print(f"[*] Activating with License Key...")
             try:
                 resp = requests.get(
@@ -208,6 +211,14 @@ def main():
                 print(f"[-] Activation error: {e}")
                 sys.exit(1)
 
+    # Handle OpenAI key flag
+    if args.openai_key:
+        if save_openai_key(args.openai_key):
+            print(f"[+] OpenAI API key saved successfully.")
+            if not args.base_url: sys.exit(0)
+        else:
+            sys.exit(1)
+
     # 0. MANDATORY LOGIN CHECK (For new installations / Every run)
     if args.login:
         if login_flow():
@@ -215,7 +226,7 @@ def main():
         sys.exit(1)
 
     # Check if logged in
-    from breakpoint.licensing import is_logged_in
+    from .licensing import is_logged_in
     if not is_logged_in():
         print(f"\n{Fore.YELLOW}[!] LOGIN REQUIRED: Breakpoint requires a connected account.{Style.RESET_ALL}")
         print("[!] Visit https://breakpoint-web-one.vercel.app to register.")
@@ -256,7 +267,7 @@ def main():
             sys.exit(1)
 
     # 3. EULA CHECK
-    from breakpoint.legal import has_accepted_eula, prompt_eula
+    from .legal import has_accepted_eula, prompt_eula
     if not has_accepted_eula():
         if not prompt_eula():
             sys.exit(1)
@@ -311,8 +322,40 @@ def main():
 
     try:
         scenarios = load_scenarios(scenarios_path)
+        
+        # --- NEW: AI & MANUAL FILTERING LOGIC ---
+        available_module_ids = list(set([s.type for s in scenarios]))
+        selected_module_ids = available_module_ids
+
+        # 1. Manual selection (--attacks)
+        if args.attacks:
+            requested = [a.strip().lower() for a in args.attacks.split(',')]
+            selected_module_ids = [m for m in selected_module_ids if m in requested]
+            print(f"[*] Manual override: Selected {len(selected_module_ids)} modules.")
+
+        # 2. AI Project Analysis
+        analyzer = AIAnalyzer()
+        if get_openai_key() and not args.attacks:
+            if args.source:
+                # Analyze source code
+                selected_module_ids = analyzer.analyze_source_code(args.source, available_module_ids)
+            else:
+                # Analyze live target
+                selected_module_ids = analyzer.analyze_target_url(args.base_url, available_module_ids)
+            
+            # Ensure we always have something to run
+            if not selected_module_ids:
+                selected_module_ids = available_module_ids
+                print("    [!] AI suggested 0 modules. Defaulting to full scan.")
+
+        # 3. Apply Filtering
+        original_count = len(scenarios)
+        scenarios = [s for s in scenarios if s.type in selected_module_ids]
+        if len(scenarios) < original_count:
+            print(f"[+] AI/Manual Filter: Running {len(scenarios)} relevant scenarios (from {original_count}).")
+
     except Exception as e:
-        print(f"\n[!!!] FATAL: Failed to load scenarios: {e}")
+        print(f"\n[!!!] FATAL: Failed to load/filter scenarios: {e}")
         sys.exit(1)
 
     # SAFETY GATE

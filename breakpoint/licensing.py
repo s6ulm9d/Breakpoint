@@ -25,6 +25,34 @@ def get_license_key():
             pass
     return None
 
+def get_openai_key():
+    """Returns the OpenAI key from environment or local storage."""
+    # Priority 1: Environment Variable
+    env_key = os.environ.get("OPENAI_API_KEY")
+    if env_key:
+        return env_key
+    
+    # Priority 2: Persistent Storage
+    key_file = os.path.join(_get_cache_dir(), "openai.key")
+    if os.path.exists(key_file):
+        try:
+            with open(key_file, 'r') as f:
+                return f.read().strip()
+        except:
+            pass
+    return None
+
+def save_openai_key(key):
+    """Saves the OpenAI key to persistent storage."""
+    key_file = os.path.join(_get_cache_dir(), "openai.key")
+    try:
+        with open(key_file, 'w') as f:
+            f.write(key.strip())
+        return True
+    except Exception as e:
+        print(f"[-] Failed to save OpenAI key: {e}")
+        return False
+
 def save_license_key(key):
     """Saves the license key to persistent storage."""
     key_file = os.path.join(_get_cache_dir(), "license.key")
