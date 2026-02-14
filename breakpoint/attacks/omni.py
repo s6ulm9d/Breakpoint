@@ -72,7 +72,9 @@ def run_xss_scan(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]
                 if p in resp_post.text:
                     with lock: issues.append(f"Reflected XSS in JSON field '{field}'")
                     break
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(50, len(fields) + 1)) as executor:
+    # Localhost Safety: Dev servers like Vite/Next.js choke on high concurrency
+    limit = 2 if client._is_localhost else 50
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(limit, len(fields) + 1)) as executor:
         executor.map(check_xss, fields)
     passed = len(issues) == 0
     return {"scenario_id": scenario.id, "attack_type": "xss", "passed": passed, "confidence": "CONFIRMED" if not passed else "LOW", "details": {"found": issues, "leaked_data": leaked_data} if not passed else "No XSS reflection found."}
@@ -93,6 +95,7 @@ def run_open_redirect(client: HttpClient, scenario: SimpleScenario) -> Dict[str,
                      break
             except: pass
     pool_size = 20 if scenario.config.get("aggressive") else 5
+    if client._is_localhost: pool_size = min(pool_size, 2)
     with concurrent.futures.ThreadPoolExecutor(max_workers=pool_size) as executor:
         executor.map(check_redirect, fields)
     passed = len(issues) == 0
@@ -115,6 +118,7 @@ def run_advanced_dos(client: HttpClient, scenario: SimpleScenario) -> Dict[str, 
                  with lock: issues.append(f"ReDoS Vulnerability/Hang in '{field}' (Time: {duration:.2f}s)")
                  break
     pool_size = 10 if scenario.config.get("aggressive") else 2
+    if client._is_localhost: pool_size = min(pool_size, 2)
     with concurrent.futures.ThreadPoolExecutor(max_workers=pool_size) as executor:
         executor.map(check_redos, fields)
     if scenario.method in ["POST", "PUT"]:
@@ -200,7 +204,9 @@ def run_sqli_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
             if item["type"] == "time_based" and duration > 5.0:
                 with lock: issues_found.append({"msg": f"Time-Based SQLi in '{field}'", "confidence": "HIGH", "payload": item["payload"]})
         except: pass
-    with concurrent.futures.ThreadPoolExecutor(max_workers=50 if scenario.config.get("aggressive") else 20) as executor:
+    # Localhost Safety
+    limit = 5 if client._is_localhost else (50 if scenario.config.get("aggressive") else 20)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=limit) as executor:
         executor.map(check_sqli, [(f, p) for f in fields for p in payloads])
     passed = len(issues_found) == 0
     return {"scenario_id": scenario.id, "attack_type": "sql_injection", "passed": passed, "confidence": "HIGH" if issues_found else "LOW", "details": {"issues": [i["msg"] for i in issues_found], "reproduction_payload": issues_found[0]["payload"] if issues_found else None, "leaked_data": leaked_data}}
@@ -270,7 +276,8 @@ def run_brute_force(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
         resp = client.send(scenario.method, scenario.target, json_body={"username": username, "password": pwd})
         if resp.status_code == 200 and any(k in resp.text.lower() for k in ["token", "success", "profile"]):
             with lock: success_creds.append(pwd)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+    limit = 2 if client._is_localhost else 20
+    with concurrent.futures.ThreadPoolExecutor(max_workers=limit) as executor:
         executor.map(check_pwd, passwords)
     return {"scenario_id": scenario.id, "attack_type": "brute_force", "passed": not success_creds, "details": f"Credentials Found: {success_creds}" if success_creds else "No weak credentials found."}
 
@@ -353,7 +360,8 @@ def run_race_condition(client: HttpClient, scenario: SimpleScenario) -> Dict[str
         resp = client.send("POST", scenario.target, json_body={"amount": 10}, is_canary=True)
         if resp.status_code == 200:
             with lock: stats["count"] += 1
-    with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+    limit = 5 if client._is_localhost else 50
+    with concurrent.futures.ThreadPoolExecutor(max_workers=limit) as executor:
         for _ in range(50): executor.submit(attack)
     return {"scenario_id": scenario.id, "attack_type": "race_condition", "passed": True, "details": f"Race condition test sent 50 requests. Successful: {stats['count']}"}
 
@@ -457,13 +465,13 @@ def run_http_desync(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
     return {"scenario_id": scenario.id, "attack_type": "http_desync", "passed": not issues, "details": issues}
 
 def run_poodle_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    return {"scenario_id": scenario.id, "attack_type": "poodle", "passed": True, "details": "SSLv3 check simulation complete."}
+    return {"scenario_id": scenario.id, "attack_type": "poodle", "skipped": True, "details": "SSLv3 check not yet implemented in OMNI. Skipping."}
 
 def run_file_upload_abuse(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    return {"scenario_id": scenario.id, "attack_type": "file_upload_abuse", "passed": True, "details": "Multipart upload test placeholder."}
+    return {"scenario_id": scenario.id, "attack_type": "file_upload_abuse", "skipped": True, "details": "Multipart upload test not yet implemented. Skipping."}
 
 def run_zip_slip(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    return {"scenario_id": scenario.id, "attack_type": "zip_slip", "passed": True, "details": "Path traversal in ZIP archives placeholder."}
+    return {"scenario_id": scenario.id, "attack_type": "zip_slip", "skipped": True, "details": "Path traversal in ZIP archives not yet implemented. Skipping."}
 
 def run_rsc_cache_poisoning(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     headers = {"RSC": "1", "X-User-ID": "1001", "Cookie": "session=test"}

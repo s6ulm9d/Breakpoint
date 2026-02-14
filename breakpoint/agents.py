@@ -106,11 +106,13 @@ class AdversarialLoop:
                     # Heuristic: non-200 might mean crash or something interesting
                     success_count += 0.5 
         else:
-            print("    [!] Sandbox unavailable. Falling back to Heuristic/LLM Simulation.")
-            for i in range(total_attempts):
-                validation_response = self.validator.chat(f"PoC: {poc}")
-                if "CONFIRMED" in validation_response:
-                    success_count += 1
+            print("    [!] Sandbox unavailable. Skipping deep validation.")
+            return {
+                "status": "UNVERIFIED",
+                "confidence": "LOW",
+                "poc": poc,
+                "details": "Sandbox (Docker) unavailable. Could not execute PoC safely."
+            }
                 
         # 3. Decision Logic
         confidence_ratio = success_count / total_attempts

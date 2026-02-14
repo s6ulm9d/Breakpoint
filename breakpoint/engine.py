@@ -207,17 +207,33 @@ class Engine:
                                 result.status = "SUSPECT"
                                 print(f"    [?] VALIDATOR SUSPECT: Partial reproduction. ({validation_result['details']})")
                             
+                            elif validation_result["status"] == "UNVERIFIED":
+                                result.confidence = "LOW"
+                                result.status = "SUSPECT" # Downgraded from VULNERABLE but still reported
+                                result.details = f"Validation Skipped: {validation_result['details']}"
+                                print(f"    [!] VALIDATOR SKIPPED: {validation_result['details']}")
+
                             else:
                                 result.confidence = "LOW"
-                                result.status = "SECURE" # Should NOT report if not reproducible
+                                result.status = "SUSPECT" # Keep as suspect rather than hiding it
                                 result.details = f"Validation Failed: {validation_result['details']}"
-                                print(f"    [-] VALIDATOR FAILED: Mark as SECURE.")
+                                print(f"    [-] VALIDATOR FAILED: Mark as SUSPECT (Check manually).")
 
                         if result.status != "SECURE":
                             results.append(result)
                             self._print_result(scenario, result)
                         
-                        if result.status == "BLOCKED": rate_limit_hits += 1
+                        if result.status == "BLOCKED": 
+                            rate_limit_hits += 1
+                            if rate_limit_hits > 3:
+                                print(f"\n{Fore.YELLOW}[!] CRITICAL: Target is aggressively rate-limiting (429/403). Aborting to avoid total lockout.{Style.RESET_ALL}")
+                                shutdown_event.set()
+                                break
+                        
+                        if result.status == "ERROR" and "Target Unresponsive" in result.details:
+                            print(f"\n{Fore.RED}[!] FATAL: Target at {self.base_url} is unresponsive or crashed. Aborting scan.{Style.RESET_ALL}")
+                            shutdown_event.set()
+                            break
                         
                     except Exception as exc:
                         if not Engine.SHUTDOWN_SIGNAL:
@@ -353,8 +369,13 @@ class Engine:
             )
 
         except Exception as e:
-            # Mask internal errors as skipped if benign
-            return CheckResult(s.id, s.type, "SKIPPED", "LOW", f"Internal Exception: {str(e)}")
+            err_str = str(e)
+            if "Max retries" in err_str or "429" in err_str or "403" in err_str:
+                return CheckResult(s.id, check_type, "BLOCKED", "INFO", f"Rate Limited: {err_str}")
+            if "Connection refused" in err_str or "unreachable" in err_str.lower():
+                return CheckResult(s.id, check_type, "ERROR", "HIGH", f"Target Unresponsive: {err_str}")
+            
+            return CheckResult(s.id, check_type, "ERROR", "LOW", f"Engine Failure: {err_str}")
 
     def _print_result(self, scenario: Scenario, result: CheckResult):
         color = Fore.GREEN

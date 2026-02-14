@@ -344,16 +344,28 @@ def main():
                 print("[!] Please set your key first: 'breakpoint --openai-key <YOUR_KEY>'")
                 sys.exit(1)
             
-            analyzer = AIAnalyzer()
-            selected_module_ids = analyzer.analyze_source_code(args.source, available_module_ids)
-            if not selected_module_ids:
+            analyzer = AIAnalyzer(forensic_log=logger)
+            # NEW: Cross-verify source code matches the target
+            is_match = analyzer.verify_source_match(args.source, args.base_url)
+            
+            if not is_match:
+                print(f"    {Fore.YELLOW}[!] Mismatch detected. AI module filtering might be inaccurate.{Style.RESET_ALL}")
+                print(f"    [!] Defaulting to ALL modules for safety.")
                 selected_module_ids = available_module_ids
-                print("    [!] AI suggested 0 modules. Defaulting to full scan.")
+            else:
+                selected_module_ids = analyzer.analyze_source_code(args.source, available_module_ids)
+                if not selected_module_ids:
+                    selected_module_ids = available_module_ids
+                    print("    [!] AI suggested 0 modules. Defaulting to full scan.")
 
-        # --- 3. LIVE URL / DEPLOYED (AI Deactivated to save time) ---
+        # --- 3. LIVE URL / DEPLOYED (AI analysis enabled for smart filtering) ---
         else:
-            # AI is deactivated for live URLs without source access to save time/tokens as requested
-            selected_module_ids = available_module_ids
+            openai_key = get_openai_key()
+            if openai_key:
+                analyzer = AIAnalyzer(forensic_log=logger)
+                selected_module_ids = analyzer.analyze_target_url(args.base_url, available_module_ids)
+            else:
+                selected_module_ids = available_module_ids
 
         original_count = len(scenarios)
         # Fix: Filter based on the actual attack module ID

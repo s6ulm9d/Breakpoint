@@ -11,13 +11,15 @@ class ConsoleReporter:
         print("="*60)
         
         passed = [r for r in results if r.status in ["SECURE", "PASSED"]]
-        vulnerable = [r for r in results if r.status == "VULNERABLE"]
+        vulnerable = [r for r in results if r.status in ["VULNERABLE", "CONFIRMED"]]
         skipped = [r for r in results if r.status == "SKIPPED"]
+        blocked = [r for r in results if r.status == "BLOCKED"]
         errors = [r for r in results if r.status == "ERROR"]
         
         print(f"Total Checks: {len(results)}")
         print(f"PASSED:   {Fore.GREEN}{len(passed)}{Style.RESET_ALL}")
-        print(f"SKIPPED:  {Fore.YELLOW}{len(skipped)}{Style.RESET_ALL} (Rate Limited)")
+        print(f"BLOCKED:  {Fore.YELLOW}{len(blocked)}{Style.RESET_ALL}")
+        print(f"SKIPPED:  {Fore.CYAN}{len(skipped)}{Style.RESET_ALL}")
         print(f"ERRORS:   {Fore.RED}{len(errors)}{Style.RESET_ALL}")
         print(f"FAILED:   {Fore.RED}{len(vulnerable)}{Style.RESET_ALL} (Critical Vulnerabilities)")
         
@@ -28,8 +30,8 @@ class ConsoleReporter:
                  d = str(f.details)[:100].replace('\n', ' ')
                  print(f" - {Fore.RED}[{f.type}]{Style.RESET_ALL} {d}...")
         
-        if skipped:
-             print(f"\n{Fore.YELLOW}[!] NOTE: {len(skipped)} checks were skipped due to Rate Limiting (429/403).{Style.RESET_ALL}")
+        if blocked:
+             print(f"\n{Fore.YELLOW}[!] NOTE: {len(blocked)} checks were BLOCKED by the target (429/403).{Style.RESET_ALL}")
         
         print("="*60 + "\n")
 
