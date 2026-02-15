@@ -569,7 +569,7 @@ class Engine:
             meta = ATTACK_METADATA.get(check_type, {"severity": "INFO", "cwe": "N/A", "owasp": "N/A", "remediation": "N/A"})
             
             # Create Production-Grade Result
-            return CheckResult(
+            result = CheckResult(
                 id=s.id,
                 type=check_type,
                 status=status,
@@ -584,10 +584,8 @@ class Engine:
             
             # ===== POST-EXECUTION TRACKING =====
             # 1. Record in attack graph for chaining
-            # Convert CheckResult to AttackResult format for graph
             from .core.models import AttackResult, VulnerabilityStatus, Severity
             
-            # Map status to VulnerabilityStatus
             status_map = {
                 "CONFIRMED": VulnerabilityStatus.CONFIRMED,
                 "VULNERABLE": VulnerabilityStatus.VULNERABLE,
@@ -598,13 +596,9 @@ class Engine:
                 "ERROR": VulnerabilityStatus.ERROR
             }
             
-            # Map severity to Severity enum
             severity_map_enum = {
-                "CRITICAL": Severity.CRITICAL,
-                "HIGH": Severity.HIGH,
-                "MEDIUM": Severity.MEDIUM,
-                "LOW": Severity.LOW,
-                "INFO": Severity.INFO
+                "CRITICAL": Severity.CRITICAL, "HIGH": Severity.HIGH, 
+                "MEDIUM": Severity.MEDIUM, "LOW": Severity.LOW, "INFO": Severity.INFO
             }
             
             graph_result = AttackResult(
@@ -615,34 +609,24 @@ class Engine:
                 details=str(res_dict.get("details", "")),
                 artifacts=[]
             )
-            
             self.attack_graph.record_finding(check_type, graph_result)
             
             # 2. Record throttling metrics
             success = status not in ["ERROR", "BLOCKED"]
             is_timeout = "timeout" in str(res_dict.get("details", "")).lower()
-            response_time = res_dict.get("response_time", 100)  # Default 100ms if not tracked
+            response_time = res_dict.get("response_time", 50)
             self.throttler.record_request(success, response_time, is_timeout)
             
-            return CheckResult(
-                id=s.id,
-                type=check_type,
-                status=status,
-                severity=meta["severity"] if status in ["VULNERABLE", "CONFIRMED", "SUSPECT"] else "INFO",
-                details=str(res_dict.get("details", "")),
-                confidence=res_dict.get("confidence", "TENTATIVE") if status == "VULNERABLE" else "P.O.C",
-                cwe=meta["cwe"],
-                owasp=meta["owasp"],
-                remediation=meta["remediation"],
-                artifacts=res_dict.get("artifacts")
-            )
+            return result
 
         except Exception as e:
             err_str = str(e)
-            # Use ATTACK_METADATA for severity, cwe, owasp, remediation
             attack_meta = ATTACK_METADATA.get(check_type, {"severity": "INFO", "cwe": "N/A", "owasp": "N/A", "remediation": "N/A"})
 
-            # Special Handling for Localhost Crashes/Timeouts (Windows/Linux/Mac)
+            # Record FAILURE in throttler even on exception
+            self.throttler.record_request(success=False, response_time=500, is_timeout="timeout" in err_str.lower())
+
+            # Special Handling for Localhost Crashes/Timeouts
             if "localhost error" in err_str.lower() or "refused" in err_str.lower() or "unreachable" in err_str.lower() or "timeout" in err_str.lower() or "10061" in err_str:
                 target_msg = "Target Unresponsive"
                 if "127.0.0.1" in self.base_url or "localhost" in self.base_url:

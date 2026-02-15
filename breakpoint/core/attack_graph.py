@@ -276,7 +276,7 @@ class AttackGraph:
         # Build paths from each recon finding
         for recon_id in recon_findings:
             path = self._build_path_from(recon_id)
-            if len(path) > 1:  # Only include multi-step paths
+            if len(path.nodes) > 1:  # Only include multi-step paths
                 paths.append(path)
         
         return paths

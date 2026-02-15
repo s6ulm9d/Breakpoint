@@ -32,12 +32,12 @@ class StabilityMetrics:
     
     @property
     def is_unstable(self) -> bool:
-        """Target is unstable if failure rate > 20% or recent failures."""
-        if self.failure_rate > 0.2:
+        """Target is unstable if failure rate > 10% or recent failures."""
+        if self.failure_rate > 0.1: # Tightened from 0.2
             return True
         
-        # Recent failure (within last 5 seconds)
-        if self.last_failure_time and (time.time() - self.last_failure_time) < 5:
+        # Recent failure (within last 10 seconds - increased from 5)
+        if self.last_failure_time and (time.time() - self.last_failure_time) < 10:
             return True
         
         return False
@@ -45,54 +45,74 @@ class StabilityMetrics:
 class AdaptiveThrottler:
     """
     Adaptive throttling engine that adjusts attack intensity based on target stability.
-    
-    Logic Flow:
-    1. Track stability metrics (failures, timeouts, response times)
-    2. Classify attacks by intensity tier
-    3. Apply backoff strategies when instability detected
-    4. Skip EXTREME attacks on dev environments
     """
     
     # Attack intensity classification
     INTENSITY_MAP = {
         # PASSIVE - Safe for all environments
         "header_security": PayloadIntensity.PASSIVE,
+        "security_headers": PayloadIntensity.PASSIVE,
         "git_exposure": PayloadIntensity.PASSIVE,
+        "git_exposure_check": PayloadIntensity.PASSIVE,
         "debug_exposure": PayloadIntensity.PASSIVE,
         "swagger_exposure": PayloadIntensity.PASSIVE,
+        "clickjacking": PayloadIntensity.PASSIVE,
+        "clickjacking_check": PayloadIntensity.PASSIVE,
+        "env_exposure": PayloadIntensity.PASSIVE,
+        "env_exposure_check": PayloadIntensity.PASSIVE,
         
         # LIGHT - Single injection points
         "xss": PayloadIntensity.LIGHT,
         "sql_injection": PayloadIntensity.LIGHT,
         "lfi": PayloadIntensity.LIGHT,
         "open_redirect": PayloadIntensity.LIGHT,
+        "brute_force": PayloadIntensity.LIGHT,
         
         # MEDIUM - Multiple parameters
         "jwt_weakness": PayloadIntensity.MEDIUM,
+        "jwt_none_alg": PayloadIntensity.MEDIUM,
         "idor": PayloadIntensity.MEDIUM,
         "ssrf": PayloadIntensity.MEDIUM,
+        "ssrf_scan": PayloadIntensity.MEDIUM,
         "nosql_injection": PayloadIntensity.MEDIUM,
+        "nosql_injection_login": PayloadIntensity.MEDIUM,
+        "email_injection": PayloadIntensity.MEDIUM,
+        "otp_reuse": PayloadIntensity.MEDIUM,
         
-        # HEAVY - Large payloads
+        # HEAVY - Large payloads / RCE
         "xml_bomb": PayloadIntensity.HEAVY,
         "json_bomb": PayloadIntensity.HEAVY,
         "prototype_pollution": PayloadIntensity.HEAVY,
         "deserialization_rce": PayloadIntensity.HEAVY,
+        "rce": PayloadIntensity.HEAVY,
+        "rce_params_post": PayloadIntensity.HEAVY,
+        "rce_shell_shock": PayloadIntensity.HEAVY,
+        "rce_reverse_shell_attempt": PayloadIntensity.HEAVY,
+        "ssrf_cloud_metadata": PayloadIntensity.HEAVY,
+        "ssrf_intranet_port_scan": PayloadIntensity.HEAVY,
+        "file_upload_shell": PayloadIntensity.HEAVY,
+        "react_server_component_injection": PayloadIntensity.HEAVY,
+        "trust_boundary_violation": PayloadIntensity.HEAVY,
+        "redos_validation_attack": PayloadIntensity.HEAVY,
         
         # EXTREME - DoS-level
         "dos_extreme": PayloadIntensity.EXTREME,
+        "dos_extreme_annihilation_post": PayloadIntensity.EXTREME,
         "dos_slowloris": PayloadIntensity.EXTREME,
+        "slowloris_dos": PayloadIntensity.EXTREME,
         "graphql_batching": PayloadIntensity.EXTREME,
+        "graphql_batching_dos": PayloadIntensity.EXTREME,
         "traffic_spike": PayloadIntensity.EXTREME,
+        "traffic_spike_load_post": PayloadIntensity.EXTREME,
     }
     
     # Backoff delays (seconds) per intensity tier
     BACKOFF_DELAYS = {
-        PayloadIntensity.PASSIVE: 0.0,
+        PayloadIntensity.PASSIVE: 0.05, # Added small delay
         PayloadIntensity.LIGHT: 0.5,
-        PayloadIntensity.MEDIUM: 1.0,
-        PayloadIntensity.HEAVY: 2.0,
-        PayloadIntensity.EXTREME: 5.0,
+        PayloadIntensity.MEDIUM: 1.5, # Increased
+        PayloadIntensity.HEAVY: 3.5,  # Increased
+        PayloadIntensity.EXTREME: 10.0, # Increased
     }
     
     def __init__(self, is_dev_env: bool = False):
@@ -101,15 +121,7 @@ class AdaptiveThrottler:
         self.backoff_multiplier = 1.0
     
     def should_skip_attack(self, attack_id: str) -> bool:
-        """
-        Determines if an attack should be skipped based on intensity and stability.
-        
-        Logic:
-        1. EXTREME attacks → Skip on dev environments
-        2. HEAVY attacks → Skip if target unstable
-        3. MEDIUM attacks → Skip if target critically unstable (failure rate > 50%)
-        4. LIGHT/PASSIVE → Always run
-        """
+        """Determines if an attack should be skipped based on intensity and stability."""
         intensity = self.INTENSITY_MAP.get(attack_id, PayloadIntensity.MEDIUM)
         
         # Rule 1: Skip EXTREME on dev
@@ -121,61 +133,51 @@ class AdaptiveThrottler:
             return True
         
         # Rule 3: Skip MEDIUM if critically unstable
-        if intensity == PayloadIntensity.MEDIUM and self.metrics.failure_rate > 0.5:
+        if intensity == PayloadIntensity.MEDIUM and self.metrics.failure_rate > 0.3: # Lowered from 0.5
             return True
         
         return False
     
     def get_delay_before_attack(self, attack_id: str) -> float:
-        """
-        Returns delay (seconds) to wait before executing attack.
-        
-        Logic:
-        1. Base delay from BACKOFF_DELAYS
-        2. Multiply by backoff_multiplier (increases with failures)
-        3. Add jitter to prevent thundering herd
-        """
+        """Returns delay (seconds) to wait before executing attack."""
         intensity = self.INTENSITY_MAP.get(attack_id, PayloadIntensity.MEDIUM)
         base_delay = self.BACKOFF_DELAYS[intensity]
         
-        # Apply backoff multiplier
-        delay = base_delay * self.backoff_multiplier
+        # Localhost gets a multiplier boost to be extra safe
+        multiplier = self.backoff_multiplier
+        if self.is_dev_env:
+            multiplier *= 2.0
+            
+        delay = base_delay * multiplier
         
-        # Add jitter (±20%)
+        # Add jitter (±10%)
         import random
-        jitter = delay * random.uniform(-0.2, 0.2)
+        jitter = delay * random.uniform(-0.1, 0.1)
         
         return max(0, delay + jitter)
     
     def record_request(self, success: bool, response_time: float, is_timeout: bool = False):
-        """
-        Records request outcome and updates stability metrics.
-        
-        Logic:
-        1. Increment total_requests
-        2. If failure → increment failed_requests, update last_failure_time
-        3. If timeout → increment timeout_count
-        4. Update avg_response_time (rolling average)
-        5. Adjust backoff_multiplier based on failure rate
-        """
+        """Records request outcome and updates stability metrics."""
         self.metrics.total_requests += 1
         
         if not success:
             self.metrics.failed_requests += 1
             self.metrics.last_failure_time = time.time()
+            # AGGRESSIVE: Jump backoff on any failure
+            self.backoff_multiplier = min(20.0, self.backoff_multiplier * 2.0)
+        else:
+            # Gradually recover
+            self.backoff_multiplier = max(1.0, self.backoff_multiplier * 0.95)
         
         if is_timeout:
             self.metrics.timeout_count += 1
         
         # Update rolling average response time
-        alpha = 0.3  # Smoothing factor
+        alpha = 0.3
         self.metrics.avg_response_time = (
             alpha * response_time + 
             (1 - alpha) * self.metrics.avg_response_time
         )
-        
-        # Adjust backoff multiplier
-        self._adjust_backoff()
     
     def _adjust_backoff(self):
         """
