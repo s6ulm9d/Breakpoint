@@ -40,12 +40,13 @@ class Engine:
     SHUTDOWN_SIGNAL = False
     PRINT_LOCK = _threading.Lock()
 
-    def __init__(self, base_url: str, forensic_log: Optional[ForensicLogger] = None, verbose: bool = False, headers: Dict[str, str] = None, simulation: bool = False, source_path: str = None, diff_mode: bool = False, git_range: str = None, thorough: bool = False, enable_oob: bool = True):
+    def __init__(self, base_url: str, forensic_log: Optional[ForensicLogger] = None, verbose: bool = False, headers: Dict[str, str] = None, simulation: bool = False, source_path: str = None, diff_mode: bool = False, git_range: str = None, thorough: bool = False, enable_oob: bool = True, force_aggressive: bool = False):
         self.base_url = base_url.rstrip('/')
         self.verbose = verbose
         self.simulation = simulation
         self.headers = headers or {}
         self.thorough = thorough
+        self.force_aggressive = force_aggressive
         
         # Extended Intelligence
         self.source_path = source_path
@@ -89,6 +90,9 @@ class Engine:
         self.throttler = AdaptiveThrottler(is_dev_env=self._is_localhost)
         if self.verbose and self._is_localhost:
             print("[*] Adaptive Throttling: ENABLED (Dev environment detected)")
+        
+        if self.force_aggressive:
+            print(f"{Fore.YELLOW}[!] FORCE MODE: Skipping stability protections (Intensity tier protection disabled).{Style.RESET_ALL}")
         
         # 3. Attack Graph (Enables attack chaining)
         from .core.attack_graph import AttackGraph
@@ -203,127 +207,155 @@ class Engine:
         try:
             # PHASE 1: Runtime Validation (Standard)
             if std_scenarios:
-                future_to_std = {executor.submit(self._execute_scenario, s): s for s in std_scenarios}
+                future_to_std = {}
+                results_processed = 0
+                total_to_process = len(std_scenarios)
                 
-                for future in as_completed(future_to_std):
-                    if Engine.SHUTDOWN_SIGNAL or shutdown_event.is_set(): 
-                        executor.shutdown(wait=False, cancel_futures=True); break
-                    scenario = future_to_std[future]
-                    try:
-                        result = future.result() 
-                        
-                        # DEDUPLICATION CHECK
-                        if result.status == "VULNERABLE":
-                            if self._is_duplicate(result):
-                                continue
-
-                        skip_ai_types = ["header_security", "clickjacking", "git_exposure", "env_exposure", "phpinfo", "ds_store_exposure", "swagger_exposure", "debug_exposure", "cache_deception"]
-                        
-                        if result.status == "VULNERABLE" and result.type not in skip_ai_types:
-                            print(f"    [!] Vulnerability Detected ({result.type}). Initiating Adversarial Validation...")
-                            # log attempt
-                            self.logger.log_event("VULNERABILITY_CANDIDATE", {"id": scenario.id, "type": result.type})
-                            
-                            # Attempt to 'break' (validate) it fully
-                            snippet = "Source unavailable"
-                            
-                            # New Agent Logic returns dict
-                            validation_result = self.adv_loop.run(
-                                vulnerability_report=str(result.details), 
-                                source_code=snippet,
-                                target_url=self.base_url + (scenario.target if scenario.target.startswith('/') else '/' + scenario.target)
-                            )
-                            
-                            # Log validation attempt summary
-                            self.logger.log_event("VALIDATION_RESULT", {"type": result.type, "status": validation_result["status"]})
-
-                            # Decision Logic
-                            if validation_result["status"] == "CONFIRMED":
-                                result.confidence = "CONFIRMED"
-                                result.status = "CONFIRMED"
-                                print(f"    {Fore.GREEN}[+] VALIDATOR CONFIRMED: Checks passed.{Style.RESET_ALL}")
+                # Submit tasks task-by-task to respect dynamic concurrency
+                scenario_iterator = iter(std_scenarios)
+                
+                while results_processed < total_to_process:
+                    if Engine.SHUTDOWN_SIGNAL or shutdown_event.is_set():
+                        break
+                    
+                    # 1. Fill the executor up to the SUGGESTED concurrency limit
+                    suggested_limit = self.throttler.get_suggested_concurrency(concurrency)
+                    active_futures = [f for f in future_to_std if not f.done()]
+                    
+                    while len(active_futures) < suggested_limit:
+                        try:
+                            s = next(scenario_iterator)
+                            future = executor.submit(self._execute_scenario, s)
+                            future_to_std[future] = s
+                            active_futures.append(future)
+                        except StopIteration:
+                            break # No more scenarios
+                    
+                    # 2. Process any completed futures
+                    done_futures = [f for f in future_to_std if f.done() and f not in [None]]
+                    if not done_futures and active_futures:
+                        # Wait for at least one to finish
+                        done_futures, _ = concurrent.futures.wait(active_futures, return_when=concurrent.futures.FIRST_COMPLETED, timeout=0.1)
+                    
+                    for future in done_futures:
+                        if future in future_to_std:
+                            scenario = future_to_std.pop(future)
+                            results_processed += 1
+                            try:
+                                result = future.result()
                                 
-                                # PHASE 3: ARTIFACT GENERATION
-                                # Generate PoC
-                                poc_path = self.poc_gen.generate_poc(
-                                    result.type, self.base_url + scenario.target, 
-                                    result.details.get('reproduction_payload') if isinstance(result.details, dict) else "N/A", result.details if isinstance(result.details, dict) else {}
-                                )
-                                self.logger.log_event("ARTIFACT_GENERATED", {"type": "PoC", "path": poc_path})
-                                
-                                # Save Verified PoC if available
-                                if validation_result.get("poc"):
-                                    verified_poc_path = self.poc_gen.save_llm_poc(result.type, validation_result["poc"])
-                                    self.logger.log_event("ARTIFACT_GENERATED", {"type": "VerifiedPoC", "path": verified_poc_path})
-                                
-                                # Generate Regression
-                                test_path = self.stac_gen.generate_test({
-                                    "type": result.type, "target": self.base_url + scenario.target,
-                                    "scenario_id": scenario.id, "method": scenario.method,
-                                    "signature": "VULNERABLE"
-                                })
-                                self.logger.log_event("ARTIFACT_GENERATED", {"type": "RegressionTest", "path": test_path})
-                            
-                            elif validation_result["status"] == "SUSPECT":
-                                result.confidence = validation_result["confidence"]
-                                result.status = "SUSPECT"
-                                print(f"    [?] VALIDATOR SUSPECT: Partial reproduction. ({validation_result['details']})")
-                            elif validation_result["status"] == "UNVERIFIED":
-                                result.confidence = "LOW"
-                                result.status = "VULNERABLE" 
-                                result.details = f"Validation Skipped: {validation_result['details']}"
-                            
-                            else:
-                                if result.type in ["sql_injection", "rce", "ssrf", "lfi", "nosql_injection"]:
-                                     result.confidence = "LOW"
-                                     result.status = "SUSPECT"
-                                     result.details = f"Validation Failed: {validation_result['details']}"
-                                     print(f"    {Fore.YELLOW}[-] VALIDATION INCONCLUSIVE: Mark as SUSPECT.{Style.RESET_ALL}")
-                                else:
-                                     result.status = "VULNERABLE"
-                        
-                        elif result.status == "VULNERABLE" and result.type in skip_ai_types:
-                             # Auto-confirm simple exposure findings
-                             result.status = "CONFIRMED"
-                             result.confidence = "CONFIRMED"
-                             print(f"    {Fore.GREEN}[+] AUTO-CONFIRMED: {result.type} verified.{Style.RESET_ALL}")
+                                # DEDUPLICATION CHECK
+                                if result.status == "VULNERABLE":
+                                    if self._is_duplicate(result):
+                                        continue
 
-                        if result.status != "SECURE":
-                            results.append(result)
-                            self._print_result(scenario, result)
-                        
-                        if result.status == "BLOCKED" and not self.thorough: 
-                            rate_limit_hits += 1
-                            # Relaxed check for localhost to avoid annoyance
-                            limit = 50 if self._is_localhost else 3
-                            if rate_limit_hits > limit:
-                                print(f"\n{Fore.YELLOW}[!] CRITICAL: Target is aggressively rate-limiting (429/403). Aborting to avoid total lockout.{Style.RESET_ALL}")
-                                shutdown_event.set()
-                                break
-                        elif result.status == "BLOCKED" and self.thorough:
-                             if self.verbose: print(f"{Fore.YELLOW}    [!] BLOCKED but THOROUGH mode is active. Continuing scan.{Style.RESET_ALL}")
-                        
-                        if result.status == "ERROR" and "Target Unresponsive" in result.details:
-                            print(f"\n{Fore.RED}[!] FATAL: Target at {self.base_url} is unresponsive or crashed. Aborting scan.{Style.RESET_ALL}")
-                            shutdown_event.set()
-                            break
-                        
-                    except Exception as exc:
-                        if not Engine.SHUTDOWN_SIGNAL:
-                            # Use the new CheckResult constructor for errors too
-                            meta = ATTACK_METADATA.get(scenario.type, {"severity": "INFO", "cwe": "N/A", "owasp": "N/A", "remediation": "N/A"})
-                            results.append(CheckResult(
-                                id=scenario.id,
-                                type=scenario.type or "unknown",
-                                status="ERROR",
-                                severity=meta["severity"],
-                                details=f"Exception: {str(exc)}",
-                                confidence="LOW",
-                                cwe=meta["cwe"],
-                                owasp=meta["owasp"],
-                                remediation=meta["remediation"],
-                                artifacts=None
-                            ))
+                                skip_ai_types = ["header_security", "clickjacking", "git_exposure", "env_exposure", "phpinfo", "ds_store_exposure", "swagger_exposure", "debug_exposure", "cache_deception"]
+                                
+                                if result.status == "VULNERABLE" and result.type not in skip_ai_types:
+                                    print(f"    [!] Vulnerability Detected ({result.type}). Initiating Adversarial Validation...")
+                                    # log attempt
+                                    self.logger.log_event("VULNERABILITY_CANDIDATE", {"id": scenario.id, "type": result.type})
+                                    
+                                    # Attempt to 'break' (validate) it fully
+                                    snippet = "Source unavailable"
+                                    
+                                    # New Agent Logic returns dict
+                                    validation_result = self.adv_loop.run(
+                                        vulnerability_report=str(result.details), 
+                                        source_code=snippet,
+                                        target_url=self.base_url + (scenario.target if scenario.target.startswith('/') else '/' + scenario.target)
+                                    )
+                                    
+                                    # Log validation attempt summary
+                                    self.logger.log_event("VALIDATION_RESULT", {"type": result.type, "status": validation_result["status"]})
+
+                                    # Decision Logic
+                                    if validation_result["status"] == "CONFIRMED":
+                                        result.confidence = "CONFIRMED"
+                                        result.status = "CONFIRMED"
+                                        print(f"    {Fore.GREEN}[+] VALIDATOR CONFIRMED: Checks passed.{Style.RESET_ALL}")
+                                        
+                                        # PHASE 3: ARTIFACT GENERATION
+                                        # Generate PoC
+                                        poc_path = self.poc_gen.generate_poc(
+                                            result.type, self.base_url + scenario.target, 
+                                            result.details.get('reproduction_payload') if isinstance(result.details, dict) else "N/A", result.details if isinstance(result.details, dict) else {}
+                                        )
+                                        self.logger.log_event("ARTIFACT_GENERATED", {"type": "PoC", "path": poc_path})
+                                        
+                                        # Save Verified PoC if available
+                                        if validation_result.get("poc"):
+                                            verified_poc_path = self.poc_gen.save_llm_poc(result.type, validation_result["poc"])
+                                            self.logger.log_event("ARTIFACT_GENERATED", {"type": "VerifiedPoC", "path": verified_poc_path})
+                                        
+                                        # Generate Regression
+                                        test_path = self.stac_gen.generate_test({
+                                            "type": result.type, "target": self.base_url + scenario.target,
+                                            "scenario_id": scenario.id, "method": scenario.method,
+                                            "signature": "VULNERABLE"
+                                        })
+                                        self.logger.log_event("ARTIFACT_GENERATED", {"type": "RegressionTest", "path": test_path})
+                                    
+                                    elif validation_result["status"] == "SUSPECT":
+                                        result.confidence = validation_result["confidence"]
+                                        result.status = "SUSPECT"
+                                        print(f"    [?] VALIDATOR SUSPECT: Partial reproduction. ({validation_result['details']})")
+                                    elif validation_result["status"] == "UNVERIFIED":
+                                        result.confidence = "LOW"
+                                        result.status = "VULNERABLE" 
+                                        result.details = f"Validation Skipped: {validation_result['details']}"
+                                    
+                                    else:
+                                        if result.type in ["sql_injection", "rce", "ssrf", "lfi", "nosql_injection"]:
+                                             result.confidence = "LOW"
+                                             result.status = "SUSPECT"
+                                             result.details = f"Validation Failed: {validation_result['details']}"
+                                             print(f"    {Fore.YELLOW}[-] VALIDATION INCONCLUSIVE: Mark as SUSPECT.{Style.RESET_ALL}")
+                                        else:
+                                             result.status = "VULNERABLE"
+                                
+                                elif result.status == "VULNERABLE" and result.type in skip_ai_types:
+                                     # Auto-confirm simple exposure findings
+                                     result.status = "CONFIRMED"
+                                     result.confidence = "CONFIRMED"
+                                     print(f"    {Fore.GREEN}[+] AUTO-CONFIRMED: {result.type} verified.{Style.RESET_ALL}")
+
+                                if result.status != "SECURE":
+                                    results.append(result)
+                                    self._print_result(scenario, result)
+                                
+                                if result.status == "BLOCKED" and not self.thorough: 
+                                    rate_limit_hits += 1
+                                    # Relaxed check for localhost to avoid annoyance
+                                    limit = 50 if self._is_localhost else 3
+                                    if rate_limit_hits > limit:
+                                        print(f"\n{Fore.YELLOW}[!] CRITICAL: Target is aggressively rate-limiting (429/403). Aborting to avoid total lockout.{Style.RESET_ALL}")
+                                        shutdown_event.set()
+                                        break
+                                elif result.status == "BLOCKED" and self.thorough:
+                                     if self.verbose: print(f"{Fore.YELLOW}    [!] BLOCKED but THOROUGH mode is active. Continuing scan.{Style.RESET_ALL}")
+                                
+                                if result.status == "ERROR" and "Target Unresponsive" in result.details:
+                                    print(f"\n{Fore.RED}[!] FATAL: Target at {self.base_url} is unresponsive or crashed. Aborting scan.{Style.RESET_ALL}")
+                                    shutdown_event.set()
+                                    break
+                                
+                            except Exception as exc:
+                                if not Engine.SHUTDOWN_SIGNAL:
+                                    # Use the new CheckResult constructor for errors too
+                                    meta = ATTACK_METADATA.get(scenario.type, {"severity": "INFO", "cwe": "N/A", "owasp": "N/A", "remediation": "N/A"})
+                                    results.append(CheckResult(
+                                        id=scenario.id,
+                                        type=scenario.type or "unknown",
+                                        status="ERROR",
+                                        severity=meta["severity"],
+                                        details=f"Exception: {str(exc)}",
+                                        confidence="LOW",
+                                        cwe=meta["cwe"],
+                                        owasp=meta["owasp"],
+                                        remediation=meta["remediation"],
+                                        artifacts=None
+                                    ))
 
             # PHASE 4: Destructive / DoS Scenarios
             if dos_scenarios and not shutdown_event.is_set():
@@ -413,7 +445,8 @@ class Engine:
             
             # ===== ADAPTIVE THROTTLING =====
             # Check if this attack should be skipped based on intensity and stability
-            if self.throttler.should_skip_attack(check_type):
+            # SKIP if (Throttler says so AND NOT in Force Mode)
+            if self.throttler.should_skip_attack(check_type) and not self.force_aggressive:
                 attack_meta = ATTACK_METADATA.get(check_type, {"severity": "INFO", "cwe": "N/A", "owasp": "N/A", "remediation": "N/A"})
                 if self.verbose:
                     print(f"    -> [THROTTLED] Skipping {check_type} (target unstable or dev environment)")

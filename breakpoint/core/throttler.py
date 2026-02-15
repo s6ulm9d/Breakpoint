@@ -207,4 +207,20 @@ class AdaptiveThrottler:
             "avg_response_time": f"{self.metrics.avg_response_time:.2f}ms",
             "is_unstable": self.metrics.is_unstable,
             "backoff_multiplier": f"{self.backoff_multiplier:.2f}x",
+            "suggested_concurrency": self.get_suggested_concurrency(10)
         }
+
+    def get_suggested_concurrency(self, max_concurrency: int) -> int:
+        """
+        Suggests a concurrency level based on stability.
+        
+        - Stable (<5% failure): max_concurrency
+        - Unstable (10-30% failure): 50% of max
+        - Critically Unstable (>30% failure): 1 (Sequential)
+        """
+        rate = self.metrics.failure_rate
+        if rate < 0.05:
+            return max_concurrency
+        if rate < 0.3:
+            return max(2, int(max_concurrency * 0.5))
+        return 1 # Sequential execution if target is dying

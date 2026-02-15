@@ -159,7 +159,9 @@ def main():
     conf_group.add_argument("--env", choices=["dev", "staging", "production"], help="Operational Environment (Mandatory for scans)")
     conf_group.add_argument("--simulation", action="store_true", help="Run in Impact Simulation mode")
     conf_group.add_argument("--concurrency", type=int, default=None)
-    conf_group.add_argument("--aggressive", action="store_true")
+    conf_group.add_argument("--aggressive", action="store_true", help="Enable destructive attacks")
+    conf_group.add_argument("--force", action="store_true", help="Force execution: Skip stability/intensity protections")
+    conf_group.add_argument("--thorough", action="store_true", help="Thorough mode: Ignore rate limits and continue regardless of blocks")
     conf_group.add_argument("--verbose", action="store_true")
     conf_group.add_argument("--continuous", action="store_true")
     conf_group.add_argument("--interval", type=int, default=0)
@@ -465,7 +467,7 @@ def main():
         verbose=args.verbose, headers=global_headers, 
         simulation=args.simulation, source_path=args.source,
         diff_mode=args.diff, git_range=args.git_range,
-        thorough=False # Restore smart filtering engine behavior
+        thorough=args.thorough, force_aggressive=args.force
     )
     if args.aggressive:
          for s in scenarios:
