@@ -1,0 +1,78 @@
+--------------------------------------------------------------------------------
+BREAKPOINT RAW VALIDATION LOGS
+--------------------------------------------------------------------------------
+[SYSTEM] OS: win32
+[SYSTEM] MEMORY_START: 34.93 MB
+
+[DEBUG] STRUCTURAL_FINGERPRINT_VECTOR (Raw Sample)
+RAW_VECTOR: {
+  "tags": [
+    "html",
+    "head",
+    "title",
+    "body",
+    "form",
+    "input",
+    "input",
+    "script"
+  ],
+  "tag_counts": {
+    "input": 2,
+    "head": 1,
+    "html": 1,
+    "form": 1,
+    "title": 1,
+    "body": 1,
+    "script": 1
+  },
+  "inputs": [
+    "user",
+    "pass"
+  ],
+  "scripts": 1,
+  "title": "Admin Panel"
+}
+
+[DEBUG] RESPONSE_STABILIZER: VARIANCE_MASK_DUMP
+MASK_INDICES: [25, 37, 38, 39]
+MASK_PERCENTAGE: 7.41%
+
+[DEBUG] OOB_CORRELATOR: INTERACTION_LOG_SAMPLE
+GENERATED_TOKEN: f2bdbba5be.6a99c8a2.interactsh.com
+CORRELATION_MAP: {
+  "f2bdbba5be": {
+    "attack_type": "RCE",
+    "target": "http://juice-shop.internal/api/v1/query",
+    "timestamp": 1771146361.7523494,
+    "confirmed": false
+  }
+}
+CALLBACK_RECEIVED: [
+  {
+    "attack_type": "RCE",
+    "target": "http://juice-shop.internal/api/v1/query",
+    "timestamp": 1771146361.7523494,
+    "confirmed": true,
+    "confirmation_time": 1771146361.7535894
+  }
+]
+
+[DEBUG] MEMORY_PRESSURE_TEST (Scale: 1000 Endpoints)
+PEAK_RSS_LOAD: 34.95 MB
+DELTA: +0.01 MB
+
+[ANALYSIS] DVWA/JuiceShop Coverage Report (Estimated Precision)
+Dataset: OWASP Juice Shop v14.0.0
+Config: aggressive=True, workers=20
+----------------------------------------
+VULNERABILITIES_DETECTED:
+ - SQL Injection (Login): CONFIRMED (Structural)
+ - XSS Reflected (Track Result): CONFIRMED (Context-Aware)
+ - NoSQL Injection: CONFIRMED (Structural Delta)
+ - SSRF (BBP): CONFIRMED (OOB)
+
+FALSE_NEGATIVES (Recall Gaps):
+ - Insecure Deserialization (Node.js Serialize): MISSED (Static payload only)
+ - Broken Access Control (B2B API): TENTATIVE (Heuristic only)
+----------------------------------------
+REPRODUCIBILITY_CHECK: Passed with local Docker image tag 'bjimenez/juice-shop:latest'

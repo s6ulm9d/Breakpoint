@@ -40,19 +40,15 @@ class BaseAgent:
 class BreakerAgent(BaseAgent):
     def __init__(self):
         prompt = (
-            "You are the Breaker. Your objective is to find an exploit for the provided vulnerability report or code snippet. "
-            "You must generate a working Proof-of-Concept (PoC) script (preferable Python or Playwright). "
-            "Output only the PoC and a brief explanation."
+            "You are an expert pentester. Generate a Python PoC script to reproduce the reported vulnerability. "
+            "Output ONLY the code block."
         )
         super().__init__("Breaker", prompt)
 
 class ValidatorAgent(BaseAgent):
     def __init__(self):
         prompt = (
-            "You are the Validator. Given a potential vulnerability and a Breaker's PoC, "
-            "your objective is to verify if it works against the target. "
-            "You assume the role of an attacker validating their exploit. "
-            "Reply with 'CONFIRMED' if it works, or 'FAILED' if it does not."
+            "Verify the vulnerability based on the PoC output. Reply ONLY 'CONFIRMED' or 'FAILED'."
         )
         super().__init__("Validator", prompt)
 
@@ -66,73 +62,42 @@ class AdversarialLoop:
     def run(self, vulnerability_report: str, source_code: str, target_url: str = "http://localhost:3000") -> dict:
         """
         Executes the Breaker -> Validator loop.
-        Returns a dict with 'status', 'confidence', 'poc', 'details'.
         """
         print(f"\n[*] Starting Adversarial Validation Loop (Max Iterations: {self.max_iterations})...")
         print(f"    [Target: {target_url}]")
         
         # 1. Breaker generates PoC
-        try:
-            # Provide target URL to the breaker for context
-            context = f"Report: {vulnerability_report}\nCode:\n{source_code}\nTarget URL: {target_url}"
-            poc = self.breaker.chat(context)
-        except Exception as e:
-            return {"status": "ERROR", "confidence": "LOW", "poc": None, "details": f"Breaker failed: {str(e)}"}
+        context = f"Vulnerability: {vulnerability_report}\nCode Snippet: {source_code}\nTarget URL: {target_url}\nRequirement: Print '[!] ATTEMPT SUCCESSFUL' if the vulnerability is reproduced."
+        poc = self.breaker.chat(context)
 
         if not poc or "import " not in poc:
             return {"status": "HEURISTIC", "confidence": "LOW", "poc": None, "details": "Breaker could not generate valid PoC code."}
             
-        # Extract code block if LLM wrapped it in markdown
         if "```python" in poc:
             poc = poc.split("```python")[1].split("```")[0].strip()
         elif "```" in poc:
             poc = poc.split("```")[1].split("```")[0].strip()
 
-        # 2. Validator tries to confirm (Reproduction Attempt)
-        success_count = 0
-        total_attempts = 2 # Reduced for real execution speed
-        execution_logs = []
-        
-        if self.sandbox and self.sandbox.is_healthy():
-            print(f"    [>] Executing PoC in Sandbox ({total_attempts} runs)...")
-            for i in range(total_attempts):
-                success, output = self.sandbox.execute_poc(poc)
-                execution_logs.append(output)
-                
-                # Check output for confirmation keywords or signs of success
-                if success and ("[!] Vulnerability Confirmed" in output or "[+]" in output):
-                    success_count += 1
-                elif success and "Status Code: 200" not in output and "Status Code:" in output:
-                    # Heuristic: non-200 might mean crash or something interesting
-                    success_count += 0.5 
-        else:
-            print("    [!] Sandbox unavailable. Skipping deep validation.")
-            return {
-                "status": "UNVERIFIED",
-                "confidence": "LOW",
-                "poc": poc,
-                "details": "Sandbox (Docker) unavailable. Could not execute PoC safely."
-            }
-                
-        # 3. Decision Logic
-        confidence_ratio = success_count / total_attempts
-        
-        status = "SUSPECT"
-        confidence = "LOW"
-        
-        if confidence_ratio >= 0.8:
-            status = "CONFIRMED"
-            confidence = "HIGH"
-        elif confidence_ratio >= 0.4:
-            status = "SUSPECT"
-            confidence = "MEDIUM"
-        else:
-            status = "SECURE"
-            confidence = "HIGH"
+        # 2. Execution Phase
+        if not self.sandbox or not self.sandbox.is_healthy():
+            return {"status": "UNVERIFIED", "confidence": "LOW", "poc": poc, "details": "Sandbox unavailable."}
 
-        return {
-            "status": status,
-            "confidence": confidence,
-            "poc": poc if status in ["CONFIRMED", "SUSPECT"] else None,
-            "details": f"Validation success rate: {success_count}/{total_attempts}. Logs: {str(execution_logs)[:200]}..."
-        }
+        print(f"    [>] Executing PoC in Sandbox...")
+        success, output = self.sandbox.execute_poc(poc)
+        
+        # 3. Validator analyzes the REAL output
+        val_prompt = (
+            f"Vulnerability Report: {vulnerability_report}\n"
+            f"Expected Target: {target_url}\n"
+            f"PoC Output:\n{output}\n\n"
+            f"Does the PoC output prove the vulnerability exists on {target_url}?\n"
+            f"Reply ONLY 'CONFIRMED' or 'FAILED'."
+        )
+        validation_decision = self.validator.chat(val_prompt).strip().upper()
+
+        if "CONFIRMED" in validation_decision:
+            return {"status": "CONFIRMED", "confidence": "HIGH", "poc": poc, "details": "AI Validator confirmed reproduction."}
+        elif "[!] ATTEMPT SUCCESSFUL" in output:
+             return {"status": "CONFIRMED", "confidence": "MEDIUM", "poc": poc, "details": "PoC triggered success indicator."}
+        
+        return {"status": "FAILED", "confidence": "LOW", "poc": poc, "details": f"Validator decision: {validation_decision}. Logs: {output[:100]}..."}

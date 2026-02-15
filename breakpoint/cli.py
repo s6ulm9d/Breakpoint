@@ -7,6 +7,7 @@ from .metadata import get_metadata
 from .safety_lock import SafetyLock
 from .forensics import ForensicLogger
 from .ai_analyzer import AIAnalyzer
+from .http_client import HttpClient
 from .licensing import check_access, get_denial_message, get_license_tier, login_flow, get_license_key, get_openai_key, save_openai_key
 import argparse
 import sys
@@ -350,6 +351,18 @@ def main():
                 print("[!] Please set your key first: 'breakpoint --openai-key <YOUR_KEY>'")
                 sys.exit(1)
             
+            # MANDATORY HEARTBEAT BEFORE ANALYSIS
+            print(f"[*] Verifying target connectivity: {args.base_url}...")
+            client = HttpClient(args.base_url, headers=global_headers)
+            try:
+                hb = client.send("GET", "/", timeout=5)
+                if hb.status_code == 0:
+                    print(f"{Fore.RED}[!] ABORT: Target {args.base_url} is unreachable.{Style.RESET_ALL}")
+                    sys.exit(1)
+            except Exception as e:
+                print(f"{Fore.RED}[!] ABORT: Connection failed: {e}{Style.RESET_ALL}")
+                sys.exit(1)
+
             analyzer = AIAnalyzer(forensic_log=logger)
             # 1. NEW: Strict Cross-Verification (Stop if mismatched)
             is_match = analyzer.verify_source_match(args.source, args.base_url)
@@ -366,14 +379,52 @@ def main():
                 selected_module_ids = available_module_ids
                 print("    [!] AI suggested 0 modules. Defaulting to full scan.")
 
-        # --- 3. LIVE URL / DEPLOYED (AI analysis enabled for smart filtering) ---
+        # --- 3. URL-ONLY MODE (AI DISABLED) ---
         else:
-            analyzer = AIAnalyzer(forensic_log=logger)
-            selected_module_ids = analyzer.analyze_target_url(args.base_url, available_module_ids)
+            print(f"\n{Fore.CYAN}[*] URL-ONLY MODE: AI Analysis Disabled (No source path provided).{Style.RESET_ALL}")
+            print(f"[*] Verifying target connectivity: {args.base_url}...")
+            client = HttpClient(args.base_url, headers=global_headers)
+            try:
+                hb = client.send("GET", "/", timeout=5)
+            except Exception as e:
+                print(f"{Fore.RED}[!] ABORT: Target {args.base_url} is unreachable. Error: {e}{Style.RESET_ALL}")
+                sys.exit(1)
 
-        # NEW: List out ONLY the selected modules for this specific project
-        print(f"\n {Fore.CYAN}--- ANALYSIS COMPLETE ---{Style.RESET_ALL}")
-        print(f" AI has selected {Fore.YELLOW}{len(selected_module_ids)}{Style.RESET_ALL} relevant modules for this target:")
+            if not args.attacks:
+                print("\n[*] Initializing Manual Attack Selector...")
+                import questionary
+                choices = [questionary.Choice(m, checked=True) for m in available_module_ids]
+                selected_module_ids = questionary.checkbox(
+                    "Select attack modules to enable for this scan:",
+                    choices=choices,
+                    style=questionary.Style([
+                        ('qmark', 'fg:#ff5f00 bold'),
+                        ('question', 'bold'),
+                        ('answer', 'fg:#00afff bold'),
+                        ('pointer', 'fg:#00afff bold'),
+                        ('selected', 'fg:#00afff'),
+                        ('checkbox', 'fg:#00afff'),
+                        ('separator', 'fg:#6c6c6c'),
+                        ('instruction', 'fg:#6c6c6c italic'),
+                    ])
+                ).ask()
+                
+                if not selected_module_ids:
+                    print(f"{Fore.YELLOW}[!] No modules selected. Aborting run.{Style.RESET_ALL}")
+                    sys.exit(0)
+            else:
+                requested = [a.strip().lower() for a in args.attacks.split(',')]
+                selected_module_ids = [m for m in available_module_ids if m in requested]
+                print(f"[*] Command line selection: Running {len(selected_module_ids)} modules.")
+
+        # FINAL SELECTION SUMMARY
+        if args.source:
+             print(f"\n {Fore.CYAN}--- AI ANALYSIS COMPLETE ---{Style.RESET_ALL}")
+             print(f" AI has selected {Fore.YELLOW}{len(selected_module_ids)}{Style.RESET_ALL} relevant modules for this target:")
+        else:
+             print(f"\n {Fore.CYAN}--- MODULE SELECTION ---{Style.RESET_ALL}")
+             print(f" {Fore.YELLOW}{len(selected_module_ids)}{Style.RESET_ALL} modules configured for execution:")
+        
         sorted_modules = sorted(selected_module_ids)
         for i in range(0, len(sorted_modules), 4):
             chunk = sorted_modules[i:i+4]

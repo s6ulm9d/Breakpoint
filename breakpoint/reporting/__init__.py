@@ -12,16 +12,18 @@ class ConsoleReporter:
         
         passed = [r for r in results if r.status in ["SECURE", "PASSED"]]
         vulnerable = [r for r in results if r.status in ["VULNERABLE", "CONFIRMED"]]
-        skipped = [r for r in results if r.status == "SKIPPED"]
-        blocked = [r for r in results if r.status == "BLOCKED"]
-        errors = [r for r in results if r.status == "ERROR"]
+        suspect = [r for r in results if r.status == "SUSPECT"]
+        skipped = [r for r in results if r.status in ["SKIPPED", "INCONCLUSIVE", "SIMULATED"]]
+        blocked = [r for r in results if r.status in ["BLOCKED", "WAF_INTERCEPTED"]]
+        errors = [r for r in results if r.status in ["ERROR", "PROXY_FAILURE"]]
         
         print(f"Total Checks: {len(results)}")
         print(f"PASSED:   {Fore.GREEN}{len(passed)}{Style.RESET_ALL}")
+        print(f"SUSPECT:  {Fore.CYAN}{len(suspect)}{Style.RESET_ALL}")
         print(f"BLOCKED:  {Fore.YELLOW}{len(blocked)}{Style.RESET_ALL}")
-        print(f"SKIPPED:  {Fore.CYAN}{len(skipped)}{Style.RESET_ALL}")
-        print(f"ERRORS:   {Fore.RED}{len(errors)}{Style.RESET_ALL}")
-        print(f"FAILED:   {Fore.RED}{len(vulnerable)}{Style.RESET_ALL} (Critical Vulnerabilities)")
+        print(f"SKIPPED:  {Fore.WHITE}{len(skipped)}{Style.RESET_ALL}")
+        print(f"ERRORS:   {Fore.MAGENTA}{len(errors)}{Style.RESET_ALL}")
+        print(f"FAILED:   {Fore.RED}{len(vulnerable)}{Style.RESET_ALL} (Confirmed Vulnerabilities)")
         
         if vulnerable:
             print("\n[!] CRITICAL FINDINGS:")

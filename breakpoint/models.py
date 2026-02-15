@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 @dataclass
 class Scenario:
@@ -12,8 +12,12 @@ class Scenario:
 @dataclass
 class CheckResult:
     id: str
-    type: str
-    status: str # "SECURE" | "VULNERABLE" | "INCONCLUSIVE" | "ERROR" | "BLOCKED" | "WAF_INTERCEPTED" | "PROXY_FAILURE"
-    severity: Optional[str]
+    type: str # e.g., "sql_injection", "xss"
+    status: str # "SECURE" | "VULNERABLE" | "INCONCLUSIVE" | "ERROR" | "BLOCKED" | "WAF_INTERCEPTED"
+    severity: str # "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO"
     details: str
-    confidence: Optional[str] = "UNKNOWN" # CONFIRMED | HIGH | MEDIUM | LOW | TENTATIVE
+    confidence: str = "TENTATIVE" # "CONFIRMED" | "HIGH" | "MEDIUM" | "LOW" | "TENTATIVE"
+    cwe: Optional[str] = None
+    owasp: Optional[str] = None
+    remediation: Optional[str] = None
+    artifacts: Optional[List[Dict[str, str]]] = None # List of {"request": "...", "response": "..."}

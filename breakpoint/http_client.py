@@ -3,6 +3,7 @@ import requests
 import random
 import threading
 import os
+import urllib.parse
 from typing import Optional, Dict, Any, Union, List
 from dataclasses import dataclass, field
 from colorama import Fore, Style
@@ -15,11 +16,13 @@ requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 @dataclass
 class ResponseWrapper:
     status_code: int
-    headers: Dict[str, str]
     text: str
     elapsed_ms: float
     url: str
     json_data: Optional[Any] = None
+    request_dump: str = ""
+    response_dump: str = ""
+    headers: Dict[str, str] = field(default_factory=dict)
     
     @property
     def is_error(self):
@@ -70,10 +73,17 @@ class HttpClient:
 
     def __init__(self, base_url: str, timeout: float = 30.0, verbose: bool = False, headers: Optional[Dict[str, str]] = None):
         self.base_url = base_url.rstrip("/")
+        # Validate threading availability
+        try:
+            import threading
+            # print(f"DEBUG: Threading module: {threading}")
+        except ImportError:
+            print("CRITICAL: Threading module missing in send() scope!")
         self.timeout = timeout
         self.verbose = verbose
         self.silence_404s = False # Used by engine to suppress spam in aggressive modes
         self.global_headers = headers or {}
+        self.verify = False # Default to False for security testing
         self.session = requests.Session()
         
         # High-Concurrency Adapter
@@ -91,6 +101,53 @@ class HttpClient:
         if not HttpClient._proxies_loaded:
             self._load_proxies()
 
+        # Adaptive Throttling
+        self._current_delay = 0.0
+        self._throttle_lock = threading.Lock()
+        
+        # PERSISTENT SESSION for State Management
+        # We already initialized self.session above, but let's ensure headers are applied
+        self.session.headers.update(self.global_headers)
+        if not self.verify:
+            from requests.packages.urllib3.exceptions import InsecureRequestWarning
+            requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+
+        # 3. Scope Enforcement
+        self.scope_domain = urllib.parse.urlparse(base_url).netloc
+        self.whitelist = {self.scope_domain, "127.0.0.1", "localhost"}
+
+    def _is_in_scope(self, url: str) -> bool:
+        """Verifies if the target URL is within the authorized scan scope."""
+        parsed = urllib.parse.urlparse(url)
+        return not parsed.netloc or parsed.netloc in self.whitelist
+
+    def login(self, login_url: str, credentials: Dict[str, str]) -> bool:
+        """
+        Performs a POST login to establish a session.
+        Auto-extracts CSRF tokens if found in the login page first.
+        """
+        try:
+            # 1. Fetch login page to get CSRF tokens (Baseline)
+            get_resp = self.send("GET", login_url)
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(get_resp.text, 'html.parser')
+            csrf_token = None
+            csrf_input = soup.find('input', attrs={'name': re.compile(r'csrf', re.I)})
+            if csrf_input:
+                csrf_token = csrf_input.get('value')
+                credentials[csrf_input.get('name')] = csrf_token
+            
+            # 2. Perform POST login
+            post_resp = self.send("POST", login_url, json_body=credentials if "json" in get_resp.headers.get("Content-Type", "").lower() else None, form_body=urllib.parse.urlencode(credentials) if "json" not in get_resp.headers.get("Content-Type", "").lower() else None)
+            
+            if post_resp.status_code in [200, 302]:
+                print(f"{Fore.GREEN}[*] Login Successful! Session established.{Style.RESET_ALL}")
+                return True
+            return False
+        except Exception as e:
+            print(f"{Fore.RED}[!] Login Failed: {e}{Style.RESET_ALL}")
+            return False
+        
         if self.verbose:
             with HttpClient._proxy_lock:
                 if not HttpClient._init_notified:
@@ -230,16 +287,15 @@ class HttpClient:
         
         return subset
 
-    def send(self, method: str, target: str, *, 
-             headers: Optional[Dict[str, str]] = None, 
-             params: Optional[Dict[str, Any]] = None, 
-             json_body: Optional[Any] = None, 
-             form_body: Optional[Dict[str, Any]] = None,
-             timeout: Optional[float] = None,
-             is_canary: bool = False) -> ResponseWrapper:
+    def send(self, method: str, path: str, params: Dict = None, json_body: Dict = None, form_body: Any = None, headers: Dict = None, timeout: int = None, is_canary: bool = False, allow_redirects: bool = True) -> ResponseWrapper:
+        """Sends a request with retry logic, evasion headers, and scope enforcement."""
+        url = urllib.parse.urljoin(self.base_url, path)
         
-        url = target if target.startswith("http") else f"{self.base_url}/{target.lstrip('/')}"
-        
+        # SCOPE GUARD
+        if not self._is_in_scope(url):
+             print(f"{Fore.RED}[!] SCOPE VIOLATION: Blocked request to {url}{Style.RESET_ALL}")
+             return ResponseWrapper(0, {}, "SCOPE_VIOLATION", 0, url)
+
         # Cache Busting (Shuffled query param name)
         cb_key = random.choice(["_v", "cache", "ref", "ts", "rnd", "id"])
         cb_val = random.randint(1000000, 9999999)
@@ -273,6 +329,11 @@ class HttpClient:
         errors = []
         
         for attempt in range(max_retries):
+            # 0. Adaptive Throttling Sleep
+            with self._throttle_lock:
+                if self._current_delay > 0:
+                    time.sleep(self._current_delay)
+
             # 1. Build Headers
             req_headers = base_headers.copy()
             req_headers.update(self._get_bypass_headers())
@@ -319,32 +380,33 @@ class HttpClient:
             try:
                 # Dynamic Read Timeout
                 if self._is_localhost:
-                    # LOCALHOST: Ultra fast timeouts (1s connect, 5s read)
+                    # LOCALHOST: Ultra fast timeouts (1s connect, 15s read)
                     connect_timeout = 1.0
-                    read_timeout = 5.0
+                    read_timeout = 15.0
                 else:
                     # REMOTE: Robust but resilient (5s connect, 30s read)
                     connect_timeout = 5.0 if proxy_url else 3.0
                     read_timeout = 30.0
-                
-                req_timeout = timeout if timeout is not None else (connect_timeout, read_timeout) 
-                
+
+                req_timeout = timeout if timeout is not None else (connect_timeout, read_timeout)
+
+                # Perform the actual request using the persistent session
                 resp = self.session.request(
-                    method=method.upper(),
-                    url=url,
-                    headers=req_headers,
+                    method.upper(),
+                    url,
                     params=params,
-                    json=json_body,
                     data=form_body,
-                    timeout=req_timeout,
-                    proxies=proxies,
-                    verify=False,
-                    allow_redirects=True
+                    json=json_body,
+                    headers=req_headers,
+                    timeout=req_timeout, # Use req_timeout which incorporates dynamic logic
+                    verify=self.verify,
+                    proxies=proxies, # Ensure proxies are still used
+                    allow_redirects=allow_redirects
                 )
-                
+
                 # Check for rate limiting or WAF block
                 if resp.status_code in [403, 429]:
-                    if self.verbose: 
+                    if self.verbose:
                         reason = "WAF Block" if resp.status_code == 403 else "Rate Limit"
                         # Only print every 50 attempts to avoid log spam, and use \r to keep it clean
                         if (attempt + 1) % 50 == 0:
@@ -374,10 +436,10 @@ class HttpClient:
                     else:
                         is_s404 = self.is_soft_404(ResponseWrapper(
                             status_code=resp.status_code, 
-                            headers=dict(resp.headers),
                             text=resp.text,
                             elapsed_ms=resp.elapsed.total_seconds()*1000,
-                            url=str(resp.url)
+                            url=str(resp.url),
+                            headers=dict(resp.headers)
                         ))
                         
                         color = Fore.GREEN if sc < 400 else Fore.YELLOW if sc < 500 else Fore.RED
@@ -389,13 +451,37 @@ class HttpClient:
                         with HttpClient._print_lock:
                             print(f"{color}[TRAFFIC] [<] {display_sc} {resp.reason} ({resp.elapsed.total_seconds()*1000:.0f}ms) | {url.split('?')[0]}{Style.RESET_ALL}")
 
+                # Adaptive Throttling Control
+                if resp.status_code == 429:
+                    with self._throttle_lock:
+                        # Increase delay exponentially up to 2 seconds
+                        self._current_delay = min(self._current_delay + 0.5, 2.0)
+                        if self.verbose:
+                             print(f"{Fore.YELLOW}[!] RATE LIMITED (429). Throttling: {self._current_delay}s delay.{Style.RESET_ALL}")
+                    time.sleep(self._current_delay)
+                    continue
+                elif resp.status_code == 200 and self._current_delay > 0:
+                    with self._throttle_lock:
+                         # Slowly decrease delay on success
+                         self._current_delay = max(0, self._current_delay - 0.1)
+
+                # 5. Build Dumps for Evidence
+                req_dump = f"{method.upper()} {url}\n" + "\n".join(f"{k}: {v}" for k, v in req_headers.items())
+                if json_body: req_dump += f"\n\n{json.dumps(json_body, indent=2)}"
+                elif form_body: req_dump += f"\n\n{form_body}"
+
+                # Limit response body in dump to avoid excessively large logs
+                res_dump = f"HTTP/1.1 {resp.status_code} {resp.reason}\n" + "\n".join(f"{k}: {v}" for k, v in resp.headers.items()) + f"\n\n{resp.text[:500]}{'...' if len(resp.text) > 500 else ''}"
+
                 return ResponseWrapper(
                     status_code=resp.status_code, 
-                    headers=dict(resp.headers),
                     text=resp.text,
-                    elapsed_ms=resp.elapsed.total_seconds()*1000,
+                    elapsed_ms=resp.elapsed.total_seconds() * 1000.0,
                     url=str(resp.url),
-                    json_data=json_data
+                    json_data=json_data,
+                    request_dump=req_dump,
+                    response_dump=res_dump,
+                    headers=dict(resp.headers)
                 )
 
             except Exception as e:
