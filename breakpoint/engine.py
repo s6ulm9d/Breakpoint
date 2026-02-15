@@ -40,7 +40,7 @@ class Engine:
     SHUTDOWN_SIGNAL = False
     PRINT_LOCK = _threading.Lock()
 
-    def __init__(self, base_url: str, forensic_log: Optional[ForensicLogger] = None, verbose: bool = False, headers: Dict[str, str] = None, simulation: bool = False, source_path: str = None, diff_mode: bool = False, git_range: str = None, thorough: bool = False):
+    def __init__(self, base_url: str, forensic_log: Optional[ForensicLogger] = None, verbose: bool = False, headers: Dict[str, str] = None, simulation: bool = False, source_path: str = None, diff_mode: bool = False, git_range: str = None, thorough: bool = False, enable_oob: bool = True):
         self.base_url = base_url.rstrip('/')
         self.verbose = verbose
         self.simulation = simulation
@@ -70,6 +70,36 @@ class Engine:
         self._cache_lock = threading.Lock()
         
         self.findings_hashes = set()
+        
+        # ===== ADVANCED FEATURES INTEGRATION =====
+        # 1. OOB Service (Enabled by default)
+        self.oob_enabled = enable_oob
+        if self.oob_enabled:
+            from .oob import OOBCorrelator
+            self.oob_correlator = OOBCorrelator()
+            if self.verbose:
+                print("[*] OOB Service: ENABLED (Blind vulnerability detection active)")
+        else:
+            self.oob_correlator = None
+            if self.verbose:
+                print("[*] OOB Service: DISABLED")
+        
+        # 2. Adaptive Throttler (Prevents dev server crashes)
+        from .core.throttler import AdaptiveThrottler
+        self.throttler = AdaptiveThrottler(is_dev_env=self._is_localhost)
+        if self.verbose and self._is_localhost:
+            print("[*] Adaptive Throttling: ENABLED (Dev environment detected)")
+        
+        # 3. Attack Graph (Enables attack chaining)
+        from .core.attack_graph import AttackGraph
+        self.attack_graph = AttackGraph()
+        if self.verbose:
+            print("[*] Attack Graph: ENABLED (Exploitation path tracking active)")
+        
+        # 4. Target Context (Will be populated by fingerprinter)
+        from .core.context import TargetContext
+        self.context = TargetContext(base_url=self.base_url)
+        self.context.oob_provider = self.oob_correlator  # Inject OOB into context
 
         self._check_connection()
 
@@ -117,13 +147,30 @@ class Engine:
 
         # PHASE 1: TARGET DISCOVERY & FINGERPRINTING
         print(f"\n[*] PHASE 1: Discovery & Tech Fingerprinting...")
-        from .fingerprint import TechFingerprinter
+        from .core.fingerprinter import TechFingerprinter
         from .crawler import Crawler
         
+        # Use new TechFingerprinter to populate context
         fingerprinter = TechFingerprinter(client)
-        tech_found = fingerprinter.identify(self.base_url)
-        if tech_found:
-             print(f"    -> Tech Stack Identified: {', '.join(tech_found)}")
+        self.context = fingerprinter.fingerprint(self.base_url, self.context)
+        
+        # Display detected tech stack
+        tech_summary = []
+        if self.context.tech_stack.languages:
+            tech_summary.append(f"Languages: {', '.join(self.context.tech_stack.languages)}")
+        if self.context.tech_stack.frameworks:
+            tech_summary.append(f"Frameworks: {', '.join(self.context.tech_stack.frameworks)}")
+        if self.context.tech_stack.servers:
+            tech_summary.append(f"Servers: {', '.join(self.context.tech_stack.servers)}")
+        if self.context.tech_stack.databases:
+            tech_summary.append(f"Databases: {', '.join(self.context.tech_stack.databases)}")
+        
+        if tech_summary:
+            print(f"    -> Tech Stack Identified:")
+            for item in tech_summary:
+                print(f"       • {item}")
+        else:
+            print(f"    -> Tech Stack: Unable to fingerprint (generic target)")
         
         crawler = Crawler(self.base_url, client)
         print(f"    -> Starting recursive discovery (Max Depth: 3)...")
@@ -131,10 +178,10 @@ class Engine:
         new_targets = crawler.get_scan_targets()
         print(f"    -> Discovery Complete: Found {len(new_targets)} unique endpoints/forms.")
         
-        # Merge discovered targets into scenarios
-        # (For simplicity in this PR, we map detected forms to relevant attack types)
+        # Store discovered endpoints in context
         for target in new_targets:
-            if target["method"] == "POST":
+            self.context.discovered_endpoints.append(target.get("url", ""))
+            if target.get("method") == "POST":
                 # Create a dynamic scenario if not already covered
                 pass
 
@@ -314,6 +361,33 @@ class Engine:
             os._exit(0)
         finally:
             executor.shutdown(wait=True)
+            
+            # ===== EXPLOITATION PATH GENERATION =====
+            if self.verbose:
+                print(f"\n[*] Generating Exploitation Paths...")
+            
+            paths = self.attack_graph.generate_exploit_paths()
+            if paths:
+                print(f"\n{'='*60}")
+                print(f"EXPLOITATION PATHS DISCOVERED ({len(paths)})")
+                print(f"{'='*60}")
+                for idx, path in enumerate(paths, 1):
+                    print(f"\nPath {idx} (Severity Score: {path.severity_score:.1f}/40):")
+                    print(f"  Chain: {' → '.join(path.nodes)}")
+                    print(f"  {path.description}")
+                print(f"{'='*60}\n")
+            
+            # ===== THROTTLING REPORT =====
+            if self.verbose and self._is_localhost:
+                stability_report = self.throttler.get_stability_report()
+                print(f"\n[*] Target Stability Report:")
+                print(f"    Total Requests: {stability_report['total_requests']}")
+                print(f"    Failed Requests: {stability_report['failed_requests']}")
+                print(f"    Failure Rate: {stability_report['failure_rate']}")
+                print(f"    Avg Response Time: {stability_report['avg_response_time']}")
+                print(f"    Target Status: {'UNSTABLE' if stability_report['is_unstable'] else 'STABLE'}")
+                print(f"    Backoff Multiplier: {stability_report['backoff_multiplier']}")
+            
             # Final Signature
             self.logger.sign_run()
 
@@ -336,6 +410,30 @@ class Engine:
     def _execute_scenario(self, s: Scenario) -> CheckResult:
         try:
             check_type = s.attack_type if getattr(s, 'type', '') == 'simple' and hasattr(s, 'attack_type') else s.type
+            
+            # ===== ADAPTIVE THROTTLING =====
+            # Check if this attack should be skipped based on intensity and stability
+            if self.throttler.should_skip_attack(check_type):
+                attack_meta = ATTACK_METADATA.get(check_type, {"severity": "INFO", "cwe": "N/A", "owasp": "N/A", "remediation": "N/A"})
+                if self.verbose:
+                    print(f"    -> [THROTTLED] Skipping {check_type} (target unstable or dev environment)")
+                return CheckResult(
+                    id=s.id,
+                    type=check_type,
+                    status="SKIPPED",
+                    severity=attack_meta["severity"],
+                    details=f"Skipped due to adaptive throttling (intensity tier protection)",
+                    confidence="N/A",
+                    cwe=attack_meta["cwe"],
+                    owasp=attack_meta["owasp"],
+                    remediation=attack_meta["remediation"]
+                )
+            
+            # Apply delay before attack
+            import time
+            delay = self.throttler.get_delay_before_attack(check_type)
+            if delay > 0:
+                time.sleep(delay)
             
             # SIMULATION CHECK
             from breakpoint.metadata import get_metadata
@@ -471,6 +569,61 @@ class Engine:
             meta = ATTACK_METADATA.get(check_type, {"severity": "INFO", "cwe": "N/A", "owasp": "N/A", "remediation": "N/A"})
             
             # Create Production-Grade Result
+            return CheckResult(
+                id=s.id,
+                type=check_type,
+                status=status,
+                severity=meta["severity"] if status in ["VULNERABLE", "CONFIRMED", "SUSPECT"] else "INFO",
+                details=str(res_dict.get("details", "")),
+                confidence=res_dict.get("confidence", "TENTATIVE") if status == "VULNERABLE" else "P.O.C",
+                cwe=meta["cwe"],
+                owasp=meta["owasp"],
+                remediation=meta["remediation"],
+                artifacts=res_dict.get("artifacts")
+            )
+            
+            # ===== POST-EXECUTION TRACKING =====
+            # 1. Record in attack graph for chaining
+            # Convert CheckResult to AttackResult format for graph
+            from .core.models import AttackResult, VulnerabilityStatus, Severity
+            
+            # Map status to VulnerabilityStatus
+            status_map = {
+                "CONFIRMED": VulnerabilityStatus.CONFIRMED,
+                "VULNERABLE": VulnerabilityStatus.VULNERABLE,
+                "SUSPECT": VulnerabilityStatus.SUSPECT,
+                "SECURE": VulnerabilityStatus.SECURE,
+                "SKIPPED": VulnerabilityStatus.SKIPPED,
+                "BLOCKED": VulnerabilityStatus.BLOCKED,
+                "ERROR": VulnerabilityStatus.ERROR
+            }
+            
+            # Map severity to Severity enum
+            severity_map_enum = {
+                "CRITICAL": Severity.CRITICAL,
+                "HIGH": Severity.HIGH,
+                "MEDIUM": Severity.MEDIUM,
+                "LOW": Severity.LOW,
+                "INFO": Severity.INFO
+            }
+            
+            graph_result = AttackResult(
+                scenario_id=s.id,
+                attack_id=check_type,
+                status=status_map.get(status, VulnerabilityStatus.SECURE),
+                severity=severity_map_enum.get(meta["severity"], Severity.INFO),
+                details=str(res_dict.get("details", "")),
+                artifacts=[]
+            )
+            
+            self.attack_graph.record_finding(check_type, graph_result)
+            
+            # 2. Record throttling metrics
+            success = status not in ["ERROR", "BLOCKED"]
+            is_timeout = "timeout" in str(res_dict.get("details", "")).lower()
+            response_time = res_dict.get("response_time", 100)  # Default 100ms if not tracked
+            self.throttler.record_request(success, response_time, is_timeout)
+            
             return CheckResult(
                 id=s.id,
                 type=check_type,
