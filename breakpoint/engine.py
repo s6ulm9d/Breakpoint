@@ -32,6 +32,24 @@ ATTACK_METADATA = {
     "cve_log4shell": {"severity": "CRITICAL", "cwe": "CWE-502", "owasp": "A06:2021", "remediation": "Patch Log4j to version 2.17.1+. Disable remote JNDI lookups."},
     "cve_spring4shell": {"severity": "CRITICAL", "cwe": "CWE-94", "owasp": "A03:2021", "remediation": "Patch Spring Framework and move to modern Tomcat versions (>9.0.62)."},
     "open_redirect": {"severity": "LOW", "cwe": "CWE-601", "owasp": "A01:2021", "remediation": "Use allow-lists for redirection targets. Prefer relative URLs."},
+    "union_sqli": {"severity": "CRITICAL", "cwe": "CWE-89", "owasp": "A03:2021", "remediation": "Use parameterized queries. Avoid reflecting data in UNION SELECT."},
+    "second_order_sqli": {"severity": "CRITICAL", "cwe": "CWE-89", "owasp": "A03:2021", "remediation": "Validate data at both input and point of use in queries."},
+    "graphql_depth": {"severity": "HIGH", "cwe": "CWE-770", "owasp": "A04:2021", "remediation": "Implement query depth and complexity limits in GraphQL."},
+    "elasticsearch_injection": {"severity": "HIGH", "cwe": "CWE-943", "owasp": "A03:2021", "remediation": "Sanitize ES query strings. Use parameterized ES templates."},
+    "dom_xss": {"severity": "MEDIUM", "cwe": "CWE-79", "owasp": "A03:2021", "remediation": "Use safe DOM sinks (textContent) instead of innerHTML/eval."},
+    "mutation_xss": {"severity": "MEDIUM", "cwe": "CWE-79", "owasp": "A03:2021", "remediation": "Use modern sanitizers that handle browser parsing quirks."},
+    "csrf": {"severity": "MEDIUM", "cwe": "CWE-352", "owasp": "A01:2021", "remediation": "Implement anti-CSRF tokens or use SameSite=Strict cookies."},
+    "csti": {"severity": "MEDIUM", "cwe": "CWE-94", "owasp": "A03:2021", "remediation": "Avoid reflecting user input inside template delimiters."},
+    "mass_assignment": {"severity": "HIGH", "cwe": "CWE-915", "owasp": "A01:2021", "remediation": "Use DTOs or explicit allow-lists for model updates."},
+    "tenant_isolation": {"severity": "CRITICAL", "cwe": "CWE-639", "owasp": "A01:2021", "remediation": "Enforce strict tenant boundary checks at the data layer."},
+    "oauth_redirect": {"severity": "HIGH", "cwe": "CWE-601", "owasp": "A01:2021", "remediation": "Validate OAuth redirect URIs against a strict allow-list."},
+    "unicode_bypass": {"severity": "MEDIUM", "cwe": "CWE-176", "owasp": "A03:2021", "remediation": "Normalize Unicode strings before validation."},
+    "verb_tampering": {"severity": "MEDIUM", "cwe": "CWE-285", "owasp": "A01:2021", "remediation": "Restrict allowed HTTP methods in server configuration."},
+    "null_byte": {"severity": "HIGH", "cwe": "CWE-158", "owasp": "A03:2021", "remediation": "Strip null bytes and use safe file handling APIs."},
+    "archive_bomb": {"severity": "HIGH", "cwe": "CWE-409", "owasp": "A04:2021", "remediation": "Limit zip extraction size and depth. Use safe decompression libraries."},
+    "cswsh": {"severity": "HIGH", "cwe": "CWE-1385", "owasp": "A01:2021", "remediation": "Validate the Origin header during WebSocket handshakes."},
+    "xs_leaks": {"severity": "LOW", "cwe": "CWE-200", "owasp": "A05:2021", "remediation": "Implement proper X-Frame-Options and Frame-Ancestors headers."},
+    "dependency_confusion": {"severity": "CRITICAL", "cwe": "CWE-829", "owasp": "A06:2021", "remediation": "Use scoped packages and verify integrity of all dependencies."},
 }
 
 import threading as _threading
@@ -575,6 +593,33 @@ class Engine:
             elif check_type == "cve_spring4shell": res_dict = omni.run_cve_spring4shell(client, s)
             elif check_type in ["cve_struts2", "struts2_rce"]: res_dict = omni.run_cve_struts2(client, s)
             elif check_type == "shellshock": res_dict = omni.run_shellshock(client, s)
+            elif check_type == "union_sqli": res_dict = omni.run_union_sqli(client, s)
+            elif check_type == "second_order_sqli": res_dict = omni.run_second_order_sqli(client, s)
+            elif check_type == "graphql_depth": res_dict = omni.run_graphql_depth_attack(client, s)
+            elif check_type in ["elasticsearch_injection", "es_injection"]: res_dict = omni.run_elasticsearch_injection(client, s)
+            elif check_type in ["search_injection", "server_side_search"]: res_dict = omni.run_server_side_search_injection(client, s)
+            elif check_type in ["parameter_pollution", "hpp"]: res_dict = omni.run_parameter_pollution(client, s)
+            elif check_type == "dom_xss": res_dict = omni.run_dom_xss_check(client, s)
+            elif check_type == "mutation_xss": res_dict = omni.run_mutation_xss(client, s)
+            elif check_type == "svg_injection": res_dict = omni.run_svg_injection(client, s)
+            elif check_type == "css_injection": res_dict = omni.run_css_injection(client, s)
+            elif check_type == "csrf": res_dict = omni.run_csrf_check(client, s)
+            elif check_type == "csti": res_dict = omni.run_csti_attack(client, s)
+            elif check_type == "password_reset_poisoning": res_dict = omni.run_password_reset_poisoning(client, s)
+            elif check_type == "session_fixation": res_dict = omni.run_session_fixation(client, s)
+            elif check_type == "mass_assignment": res_dict = omni.run_mass_assignment(client, s)
+            elif check_type == "tenant_isolation": res_dict = omni.run_tenant_isolation_check(client, s)
+            elif check_type == "oauth_redirect": res_dict = omni.run_oauth_redirect_manipulation(client, s)
+            elif check_type == "unicode_bypass": res_dict = omni.run_unicode_normalization_bypass(client, s)
+            elif check_type == "double_encoding": res_dict = omni.run_double_encoding_bypass(client, s)
+            elif check_type == "verb_tampering": res_dict = omni.run_verb_tampering(client, s)
+            elif check_type == "null_byte": res_dict = omni.run_null_byte_injection(client, s)
+            elif check_type == "slow_post": res_dict = omni.run_slow_post_attack(client, s)
+            elif check_type == "archive_bomb": res_dict = omni.run_archive_bomb(client, s)
+            elif check_type in ["cswsh", "websocket_hijacking"]: res_dict = omni.run_websocket_hijacking_check(client, s)
+            elif check_type == "browser_api_abuse": res_dict = omni.run_browser_api_abuse_probe(client, s)
+            elif check_type == "xs_leaks": res_dict = omni.run_xs_leaks_probe(client, s)
+            elif check_type == "dependency_confusion": res_dict = omni.run_dependency_confusion_check(client, s)
             else:
                 # Use ATTACK_METADATA for severity, cwe, owasp, remediation
                 attack_meta = ATTACK_METADATA.get(check_type, {"severity": "INFO", "cwe": "N/A", "owasp": "N/A", "remediation": "N/A"})
