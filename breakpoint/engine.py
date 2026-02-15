@@ -333,13 +333,13 @@ class Engine:
                                              result.status = "VULNERABLE"
                                 
                                 elif result.status == "VULNERABLE" and result.type in skip_ai_types:
-                                     # Auto-confirm simple exposure findings
-                                     result.status = "CONFIRMED"
-                                     result.confidence = "CONFIRMED"
-                                     print(f"    {Fore.GREEN}[+] AUTO-CONFIRMED: {result.type} verified.{Style.RESET_ALL}")
+                                    # Auto-confirm simple exposure findings
+                                    result.status = "CONFIRMED"
+                                    result.confidence = "CONFIRMED"
+                                    print(f"    {Fore.GREEN}[+] AUTO-CONFIRMED: {result.type} verified.{Style.RESET_ALL}")
 
+                                results.append(result)
                                 if result.status != "SECURE":
-                                    results.append(result)
                                     self._print_result(scenario, result)
                                 
                                 if result.status == "BLOCKED" and not self.thorough: 

