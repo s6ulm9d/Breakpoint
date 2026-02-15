@@ -18,12 +18,12 @@ import subprocess
 import requests
 import questionary
 from colorama import Fore, Style, init
+import threading
 
 def signal_handler(sig, frame):
-    print("\n[!] Force Quitting (Ctrl+C detected)...")
     from .engine import Engine
     Engine.SHUTDOWN_SIGNAL = True
-    sys.stdout.flush()
+    # Use os._exit(0) for an immediate, clean termination of all threads
     os._exit(0)
 
 def get_app_data_dir():
@@ -264,29 +264,24 @@ def main():
                 k, v = h.split(":", 1)
                 global_headers[k.strip()] = v.strip()
 
-    BANNER = r"""
-  ____  _____  ______          _   _ _____   ____ _____ _   _ _______ 
- |  _ \|  __ \|  ____|   /\   | |/ /|  __ \ / __ \|_   _| \ | |__   __|
- | |_) | |__) | |__     /  \  | ' / | |__) | |  | | | | |  \| |  | |   
- |  _ <|  _  /|  __|   / /\ \ |  <  |  ___/| |  | | | | | . ` |  | |   
- | |_) | | \ \| |____ / ____ \| . \ | |    | |__| |_| |_| |\  |  | |   
- |____/|_|  \_\______/_/    \_\_|\_\|_|     \____/|_____|_| \_|  |_|   
-    """
-    print(f"{Fore.RED}{BANNER}")
-    print(f"{Fore.RED}   BREAKPOINT — WEAPONIZED RESILIENCE ENGINE")
-    print(f"{Fore.RED}       \"Production is already broken.\"{Style.RESET_ALL}\n")
+    print(f"\n{Fore.RED}    BREAKPOINT // WEAPONIZED RESILIENCE ENGINE")
+    print(f"{Fore.RED}    \"Production is already broken.\"{Style.RESET_ALL}\n")
 
     check_internet_connectivity()
     tier = get_license_tier()
     print(f"[*] LICENSE: {tier} EDITION")
     
     # 0. Global API Key Reminder
-    if not get_openai_key():
-         print(f"{Fore.YELLOW}[!] INFO: OpenAI API key not set. AI-driven project analysis is disabled.{Style.RESET_ALL}")
-         print(f"{Fore.YELLOW}[!] Run 'breakpoint --openai-key <KEY>' to enable smart module filtering.{Style.RESET_ALL}\n")
+    openai_key = get_openai_key()
+    if not openai_key:
+         print(f" {Fore.YELLOW}[!] INFO: AI Engine is offline (OpenAI Key not set).{Style.RESET_ALL}")
+         print(f" {Fore.YELLOW}    Adversarial validation and smart filtering are disabled.{Style.RESET_ALL}")
+    else:
+         print(f" {Fore.GREEN}[+] AI Engine: ONLINE{Style.RESET_ALL}")
 
     logger = ForensicLogger()
-    print(f"[*] Forensic Audit Log Initialized: {logger.log_file}")
+    print(f" {Fore.CYAN}[*] Forensic Audit initialized.{Style.RESET_ALL}")
+    print("-" * 60)
     
     app_data = get_app_data_dir()
     config_path = os.path.join(app_data, "omni_attack_all.yaml")
@@ -345,18 +340,20 @@ def main():
                 sys.exit(1)
             
             analyzer = AIAnalyzer(forensic_log=logger)
-            # NEW: Cross-verify source code matches the target
+            # 1. NEW: Strict Cross-Verification (Stop if mismatched)
             is_match = analyzer.verify_source_match(args.source, args.base_url)
             
             if not is_match:
-                print(f"    {Fore.YELLOW}[!] Mismatch detected. AI module filtering might be inaccurate.{Style.RESET_ALL}")
-                print(f"    [!] Defaulting to ALL modules for safety.")
+                print(f"\n{Fore.RED}[!] ABORTING: Source code does not match the target URL.{Style.RESET_ALL}")
+                print(f"{Fore.RED}[!] AI analysis confirms this source project is unrelated to {args.base_url}.{Style.RESET_ALL}")
+                print(f"[!] To run a generic scan without source verification, omit the --source flag.")
+                sys.exit(1)
+            
+            # 2. AI Source Analysis (Smart Filtering)
+            selected_module_ids = analyzer.analyze_source_code(args.source, available_module_ids)
+            if not selected_module_ids:
                 selected_module_ids = available_module_ids
-            else:
-                selected_module_ids = analyzer.analyze_source_code(args.source, available_module_ids)
-                if not selected_module_ids:
-                    selected_module_ids = available_module_ids
-                    print("    [!] AI suggested 0 modules. Defaulting to full scan.")
+                print("    [!] AI suggested 0 modules. Defaulting to full scan.")
 
         # --- 3. LIVE URL / DEPLOYED (AI analysis enabled for smart filtering) ---
         else:
@@ -367,17 +364,21 @@ def main():
             else:
                 selected_module_ids = available_module_ids
 
-        original_count = len(scenarios)
+        # NEW: List out ONLY the selected modules for this specific project
+        print(f"\n {Fore.CYAN}--- ANALYSIS COMPLETE ---{Style.RESET_ALL}")
+        print(f" AI has selected {Fore.YELLOW}{len(selected_module_ids)}{Style.RESET_ALL} relevant modules for this target:")
+        sorted_modules = sorted(selected_module_ids)
+        for i in range(0, len(sorted_modules), 4):
+            chunk = sorted_modules[i:i+4]
+            print(f"    • {', '.join(chunk)}")
+        print("-" * 60)
+
         # Fix: Filter based on the actual attack module ID
         scenarios = [s for s in scenarios if getattr(s, 'attack_type', s.type) in selected_module_ids]
         
         if not scenarios:
-            print(f"\n{Fore.RED}[!] ERROR: No valid attack scenarios remain after filtering.{Style.RESET_ALL}")
-            print(f"[!] Please check your --attacks input or selection.")
+            print(f"\n{Fore.RED}[!] ERROR: No valid attack scenarios remain.{Style.RESET_ALL}")
             sys.exit(1)
-
-        if len(scenarios) < original_count:
-            print(f"[+] Final Filter: Running {len(scenarios)} scenarios (from {original_count}).")
 
     except Exception as e:
         print(f"\n[!!!] FATAL: Failed to load/filter scenarios: {e}")
@@ -405,7 +406,8 @@ def main():
         base_url=args.base_url, forensic_log=logger, 
         verbose=args.verbose, headers=global_headers, 
         simulation=args.simulation, source_path=args.source,
-        diff_mode=args.diff, git_range=args.git_range
+        diff_mode=args.diff, git_range=args.git_range,
+        thorough=False # Restore smart filtering engine behavior
     )
     if args.aggressive:
          for s in scenarios:
@@ -417,7 +419,10 @@ def main():
         if args.continuous:
              print(f"\n{Fore.YELLOW}=== ITERATION #{iteration} ==={Style.RESET_ALL}")
         try:
-            print(f"[*] TARGET: {args.base_url}\n[*] ENV: {args.env.upper()}\n[*] MODE: {'SIMULATION' if args.simulation else 'EXECUTION'}\n[*] PAYLOADS: {len(scenarios)}")
+            print(f" {Fore.CYAN}[*] TARGET:  {args.base_url}")
+            print(f" [!] ENV:     {args.env.upper()}")
+            print(f" [*] MODE:    {'SIMULATION' if args.simulation else 'EXECUTION'}")
+            print(f" [+] ATTACKS: {len(scenarios)}\n")
             results = engine.run_all(scenarios, concurrency=args.concurrency)
         except Exception as e:
             print(f"\n[!!!] CRITICAL FAILURE: {e}")

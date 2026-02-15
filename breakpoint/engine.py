@@ -40,12 +40,14 @@ ATTACK_IMPACTS = {
 
 class Engine:
     SHUTDOWN_SIGNAL = False
+    PRINT_LOCK = threading.Lock()
 
-    def __init__(self, base_url: str, forensic_log: Optional[ForensicLogger] = None, verbose: bool = False, headers: Dict[str, str] = None, simulation: bool = False, source_path: str = None, diff_mode: bool = False, git_range: str = None):
+    def __init__(self, base_url: str, forensic_log: Optional[ForensicLogger] = None, verbose: bool = False, headers: Dict[str, str] = None, simulation: bool = False, source_path: str = None, diff_mode: bool = False, git_range: str = None, thorough: bool = False):
         self.base_url = base_url.rstrip('/')
         self.verbose = verbose
         self.simulation = simulation
         self.headers = headers or {}
+        self.thorough = thorough
         
         # Extended Intelligence
         self.source_path = source_path
@@ -223,12 +225,14 @@ class Engine:
                             results.append(result)
                             self._print_result(scenario, result)
                         
-                        if result.status == "BLOCKED": 
+                        if result.status == "BLOCKED" and not self.thorough: 
                             rate_limit_hits += 1
                             if rate_limit_hits > 3:
                                 print(f"\n{Fore.YELLOW}[!] CRITICAL: Target is aggressively rate-limiting (429/403). Aborting to avoid total lockout.{Style.RESET_ALL}")
                                 shutdown_event.set()
                                 break
+                        elif result.status == "BLOCKED" and self.thorough:
+                             if self.verbose: print(f"{Fore.YELLOW}    [!] BLOCKED but THOROUGH mode is active. Continuing scan.{Style.RESET_ALL}")
                         
                         if result.status == "ERROR" and "Target Unresponsive" in result.details:
                             print(f"\n{Fore.RED}[!] FATAL: Target at {self.base_url} is unresponsive or crashed. Aborting scan.{Style.RESET_ALL}")
@@ -293,8 +297,8 @@ class Engine:
             client = HttpClient(self.base_url, verbose=self.verbose, headers=self.headers)
             
             with self._cache_lock:
-                if s.target in self._dead_paths:
-                    return CheckResult(s.id, check_type, "SKIPPED", "INFO", f"Endpoint {s.target} confirmed unreachable.")
+                if s.target in self._dead_paths and not self.thorough:
+                    return CheckResult(s.id, check_type, "SKIPPED", "INFO", f"Endpoint {s.target} unreachable (cached).")
 
             # DISPATCHER (OMNI CONSOLIDATED)
             res_dict = {}
@@ -346,10 +350,13 @@ class Engine:
             elif check_type == "file_upload_abuse": res_dict = omni.run_file_upload_abuse(client, s)
             elif check_type == "zip_slip": res_dict = omni.run_zip_slip(client, s)
             elif check_type == "rsc_cache_poisoning": res_dict = omni.run_rsc_cache_poisoning(client, s)
-            elif check_type in ["dos_extreme", "slowloris", "dos_slowloris"]:
-                res_dict = omni.run_dos_extreme(client, s)
+            elif check_type == "cve_spring4shell": res_dict = omni.run_cve_spring4shell(client, s)
+            elif check_type == "cve_struts2": res_dict = omni.run_cve_struts2(client, s)
+            elif check_type == "shellshock": res_dict = omni.run_shellshock(client, s)
+            elif check_type in ["dos_extreme", "slowloris", "dos_slowloris", "redos", "xml_bomb", "traffic_spike", "password_length", "replay_simple"]:
+                res_dict = omni.run_dos_extreme(client, s) # Map all DoS types to the consolidated extreme runner
             else:
-                return CheckResult(s.id, check_type, "SKIPPED", "INFO", f"Check not implemented: {check_type}")
+                return CheckResult(s.id, check_type, "SKIPPED", "INFO", f"Check Implementation Missing: {check_type}")
 
             # Convert Dict to CheckResult
             status = "SECURE"
@@ -396,22 +403,23 @@ class Engine:
         elif result.status == "SKIPPED":
             color = Fore.WHITE
 
-        print(f"    -> {color}[{result.status}] {scenario.id}: {str(result.details)[:80]}...{Style.RESET_ALL}")
-        
-        if result.status == "CONFIRMED":
-            print(f"\n{Fore.RED}" + "="*60)
-            print(f" CONFIRMED VULNERABILITY: {result.type.upper()}")
-            print(f"="*60 + f"{Style.RESET_ALL}")
+        with Engine.PRINT_LOCK:
+            print(f"    -> {color}[{result.status}] {scenario.id}: {str(result.details)[:80]}...{Style.RESET_ALL}")
             
-            # Confidence
-            conf = result.confidence or "HIGH"
-            print(f" {Fore.RED}{'Confidence:':<20}{Style.RESET_ALL} {conf}")
-            
-            # Impact
-            impact = ATTACK_IMPACTS.get(result.type, "Security Compromise")
-            print(f" {Fore.RED}{'Business Impact:':<20}{Style.RESET_ALL} {impact}")
-            
-            # Evidence
-            print(f" {Fore.RED}{'Evidence:':<20}{Style.RESET_ALL} See artifacts/poc_*.py")
-            
-            print(f"{Fore.RED}" + "="*60 + f"{Style.RESET_ALL}\n")
+            if result.status == "CONFIRMED":
+                print(f"\n{Fore.RED}" + "="*60)
+                print(f" CONFIRMED VULNERABILITY: {result.type.upper()}")
+                print(f"="*60 + f"{Style.RESET_ALL}")
+                
+                # Confidence
+                conf = result.confidence or "HIGH"
+                print(f" {Fore.RED}{'Confidence:':<20}{Style.RESET_ALL} {conf}")
+                
+                # Impact
+                impact = ATTACK_IMPACTS.get(result.type, "Security Compromise")
+                print(f" {Fore.RED}{'Business Impact:':<20}{Style.RESET_ALL} {impact}")
+                
+                # Evidence
+                print(f" {Fore.RED}{'Evidence:':<20}{Style.RESET_ALL} See artifacts/poc_*.py")
+                
+                print(f"{Fore.RED}" + "="*60 + f"{Style.RESET_ALL}\n")

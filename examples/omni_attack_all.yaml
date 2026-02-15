@@ -334,7 +334,7 @@
   config: {body: {action: "test"}, repeats: 20000, aggressive: true}
 
 # 10. DESTRUCTIVE ATTACKS (v2.8.0-DESTRUCTIVE)
-- id: dos_extreme_annihilation_post
+- id: dos_extreme_high_concurrency_stress_mode
   type: dos_extreme
   target: /api/upload
   method: POST

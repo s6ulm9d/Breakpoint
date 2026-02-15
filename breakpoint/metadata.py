@@ -83,7 +83,7 @@ ATTACK_KNOWLEDGE_BASE = {
         "description": "Exhausts connection pool by holding open partial HTTP requests.",
     },
     "dos_extreme": {
-        "name": "Extreme Denial of Service",
+        "name": "High-Concurrency Stress Mode",
         "severity": "CRITICAL",
         "risk_tier": RiskTier.CRITICAL,
         "destructive": True,

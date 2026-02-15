@@ -39,7 +39,7 @@ The `Engine` is the heartbeat of the tool. It handles concurrency, safety gates,
 Standard attacks like `header_security`, `reflection`, and `idor` run first to map the target.
 
 ### Phase 2: Destructive Execution
-Resource-intensive attacks (Slowloris, XML Bombs, Extreme DoS) are deferred until Phase 2 to prevent early app crashes from skewing results.
+Resource-intensive attacks (Slowloris, XML Bombs, High-Concurrency Stress Mode) are deferred until Phase 2 to prevent early app crashes from skewing results.
 
 ---
 
