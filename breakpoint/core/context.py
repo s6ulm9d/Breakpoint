@@ -29,6 +29,7 @@ class TargetContext:
     
     # Discovery Data
     endpoints: Set[str] = field(default_factory=set)
+    discovered_endpoints: list = field(default_factory=list)  # Ordered list from crawler
     parameters: Set[str] = field(default_factory=set)
     
     # Security Controls
