@@ -280,11 +280,13 @@ def main():
     tier = get_license_tier()
     print(f"[*] LICENSE: {tier} EDITION")
     
-    # 0. Global API Key Reminder
+    # 0. Global API Key Requirement
     openai_key = get_openai_key()
     if not openai_key:
-         print(f" {Fore.YELLOW}[!] INFO: AI Engine is offline (OpenAI Key not set).{Style.RESET_ALL}")
-         print(f" {Fore.YELLOW}    Adversarial validation and smart filtering are disabled.{Style.RESET_ALL}")
+         print(f" {Fore.RED}[!] ABORTED: OpenAI API key is missing.{Style.RESET_ALL}")
+         print(f" {Fore.RED}    Breakpoint requires an AI key for project footprinting and adversarial validation.{Style.RESET_ALL}")
+         print(f" {Fore.YELLOW}    Provide one using: 'breakpoint --openai-key <KEY>'{Style.RESET_ALL}\n")
+         sys.exit(1)
     else:
          print(f" {Fore.GREEN}[+] AI Engine: ONLINE{Style.RESET_ALL}")
 
@@ -366,12 +368,8 @@ def main():
 
         # --- 3. LIVE URL / DEPLOYED (AI analysis enabled for smart filtering) ---
         else:
-            openai_key = get_openai_key()
-            if openai_key:
-                analyzer = AIAnalyzer(forensic_log=logger)
-                selected_module_ids = analyzer.analyze_target_url(args.base_url, available_module_ids)
-            else:
-                selected_module_ids = available_module_ids
+            analyzer = AIAnalyzer(forensic_log=logger)
+            selected_module_ids = analyzer.analyze_target_url(args.base_url, available_module_ids)
 
         # NEW: List out ONLY the selected modules for this specific project
         print(f"\n {Fore.CYAN}--- ANALYSIS COMPLETE ---{Style.RESET_ALL}")
