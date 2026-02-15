@@ -264,7 +264,16 @@ def main():
                 k, v = h.split(":", 1)
                 global_headers[k.strip()] = v.strip()
 
-    print(f"\n{Fore.RED}    BREAKPOINT // WEAPONIZED RESILIENCE ENGINE")
+    BANNER = r"""
+  ____  _____  ______          _   _ _____   ____ _____ _   _ _______ 
+ |  _ \|  __ \|  ____|   /\   | |/ /|  __ \ / __ \|_   _| \ | |__   __|
+ | |_) | |__) | |__     /  \  | ' / | |__) | |  | | | | |  \| |  | |   
+ |  _ <|  _  /|  __|   / /\ \ |  <  |  ___/| |  | | | | | . ` |  | |   
+ | |_) | | \ \| |____ / ____ \| . \ | |    | |__| |_| |_| |\  |  | |   
+ |____/|_|  \_\______/_/    \_\_|\_\|_|     \____/|_____|_| \_|  |_|   
+    """
+    print(f"{Fore.RED}{BANNER}")
+    print(f"{Fore.RED}    BREAKPOINT // WEAPONIZED RESILIENCE ENGINE")
     print(f"{Fore.RED}    \"Production is already broken.\"{Style.RESET_ALL}\n")
 
     check_internet_connectivity()
