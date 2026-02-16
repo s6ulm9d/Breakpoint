@@ -428,6 +428,48 @@ def main():
 
         # Fix: Filter based on the actual attack module ID
         scenarios = [s for s in scenarios if getattr(s, 'attack_type', s.type) in selected_module_ids]
+
+        # --- DEDUPLICATION: Ensure "Elite" precision by removing identical probes ---
+        unique_scenarios = []
+        seen_fingerprints = set()
+        import json
+
+        # Module Synonyms: Normalize these to prevent redundant scans across overlapping modules
+        SYNONYMS = {
+            "clickjacking": "header_security",
+            "clickjacking_check": "header_security",
+            "cors_origin": "header_security",
+            "security_headers": "header_security",
+            "blind_sqli": "sql_injection",
+            "union_sqli": "sql_injection",
+            "time_sqli": "sql_injection",
+            "error_sqli": "sql_injection",
+            "reflected_xss": "xss",
+            "stored_xss": "xss"
+        }
+        
+        for s in scenarios:
+            # Create a unique fingerprint for this scenario's logical execution
+            config_json = json.dumps(getattr(s, 'config', {}), sort_keys=True)
+            
+            # Use synonym if available to normalize the module type
+            m_type = getattr(s, 'attack_type', s.type)
+            norm_type = SYNONYMS.get(m_type, m_type)
+
+            fingerprint = (
+                norm_type,
+                s.target,
+                s.method,
+                config_json
+            )
+            
+            if fingerprint not in seen_fingerprints:
+                unique_scenarios.append(s)
+                seen_fingerprints.add(fingerprint)
+            elif args.verbose:
+                print(f"    [-] Removing redundant scenario: {s.id} (Matches existing probe in {norm_type})")
+        
+        scenarios = unique_scenarios
         
         if not scenarios:
             print(f"\n{Fore.RED}[!] ERROR: No valid attack scenarios remain.{Style.RESET_ALL}")

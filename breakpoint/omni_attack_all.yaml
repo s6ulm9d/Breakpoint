@@ -327,11 +327,6 @@
   method: POST 
   config: {fields: [cmd, exec, query], aggressive: true}
 
-- id: blind_sqli_destructive
-  type: sql_injection
-  target: /
-  method: GET
-  config: {fields: [id, user, q], aggressive: true}
 
 - id: ssrf_intranet_port_scan
   type: ssrf
@@ -370,12 +365,7 @@
   method: POST
   config: {aggressive: true}
 
-- id: graphql_alias_overload
-  type: graphql_batching
-  target: /graphql
-  method: POST
-
-- id: graphql_circular_frag
+- id: graphql_batching_probe
   type: graphql_batching
   target: /graphql
   method: POST
@@ -507,10 +497,6 @@
   target: /
   method: GET
 
-- id: ruby_on_rails_rce_cve
-  type: rce
-  target: /
-  method: GET
 
 - id: fast-xml-parser-rce
   type: xml_bomb
@@ -542,42 +528,21 @@
   target: /functionRouter
   method: POST
 
-- id: confluence_rce_cve
-  type: rce
-  target: /
-  method: GET
 
 - id: f5_big_ip_rce
   type: rce
   target: /mgmt/tm/util/bash
   method: POST
 
-- id: citric_adc_rce
-  type: rce
-  target: /
-  method: GET
 
 - id: vmware_vcenter_rce
   type: rce
   target: /ui/vcenter/auth/login
   method: POST
 
-- id: outlook_cve_rce
-  type: rce
-  target: /
-  method: GET
 
 
 
-- id: electron_rce_ipc
-  type: rce
-  target: /
-  method: GET
-
-- id: tauri_rce_bypass
-  type: rce
-  target: /
-  method: GET
 
 - id: te_cl_desync
   type: request_smuggling
@@ -777,17 +742,6 @@
   method: POST
   config: {check_samesite: true, aggressive: true}
 
-- id: hsts_missing_check
-  type: header_security
-  target: /
-  method: GET
-  config: {check: "HSTS"}
-
-- id: security_header_scan_v2
-  type: header_security
-  target: /
-  method: GET
-  config: {aggressive: true}
 
 - id: api_workflow_bypass_step
   type: idor
