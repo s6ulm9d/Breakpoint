@@ -277,6 +277,7 @@ class Engine:
                 
                 # Submit tasks task-by-task to respect dynamic concurrency
                 scenario_iterator = iter(std_scenarios)
+                submitted_scenario_ids = set()
                 
                 while results_processed < total_to_process:
                     if Engine.SHUTDOWN_SIGNAL or shutdown_event.is_set():
@@ -289,8 +290,14 @@ class Engine:
                     while len(active_futures) < suggested_limit:
                         try:
                             s = next(scenario_iterator)
+                            if s.id in submitted_scenario_ids:
+                                total_to_process -= 1
+                                if total_to_process <= results_processed: break
+                                continue
+
                             future = executor.submit(self._execute_scenario, s)
                             future_to_std[future] = s
+                            submitted_scenario_ids.add(s.id)
                             active_futures.append(future)
                         except StopIteration:
                             break # No more scenarios
@@ -316,12 +323,13 @@ class Engine:
                                 if next_ids:
                                     for nid in next_ids:
                                         # Find scenario in global pool if not already run
-                                        matched = [s for s in std_scenarios if s.id == nid and s.id not in self.attack_graph.completed_attacks]
+                                        matched = [s for s in std_scenarios if s.id == nid and s.id not in self.attack_graph.completed_attacks and s.id not in submitted_scenario_ids]
                                         if matched:
                                             # Prioritize this scenario by injecting it into the iterator or next batch
                                             # For simplicity, we just submit it now
                                             new_future = executor.submit(self._execute_scenario, matched[0])
                                             future_to_std[new_future] = matched[0]
+                                            submitted_scenario_ids.add(matched[0].id)
                                             total_to_process += 1
                                 
                                 # DEDUPLICATION CHECK
@@ -525,8 +533,8 @@ class Engine:
                 print(f"    Target Status: {'UNSTABLE' if stability_report['is_unstable'] else 'STABLE'}")
                 print(f"    Backoff Multiplier: {stability_report['backoff_multiplier']}")
             
-            # Final Signature
-            self.logger.sign_run()
+            # Throttling Report shown in finally or CLI
+            pass
 
         return results
 

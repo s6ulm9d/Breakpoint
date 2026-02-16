@@ -435,11 +435,8 @@ def main():
         import json
 
         # Module Synonyms: Normalize these to prevent redundant scans across overlapping modules
+        # We only map ones that are technically IDENTICAL in their probe logic.
         SYNONYMS = {
-            "clickjacking": "header_security",
-            "clickjacking_check": "header_security",
-            "cors_origin": "header_security",
-            "security_headers": "header_security",
             "blind_sqli": "sql_injection",
             "union_sqli": "sql_injection",
             "time_sqli": "sql_injection",
