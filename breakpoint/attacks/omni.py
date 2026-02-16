@@ -692,25 +692,12 @@ def run_clickjacking(client: HttpClient, scenario: SimpleScenario) -> Dict[str, 
 
 
 def run_open_redirect(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Open Redirect: Header and Meta-refresh bypasses."""
-    # FREE TIER: Simple domain redirects
-    payloads = ["http://evil.com", "//evil.com", "https://google.com"]
-    
-    # AGGRESSIVE TIER: Obfuscated and bypass schemes
-    if scenario.config.get("aggressive"):
-        payloads.extend([
-            "/%09/evil.com",
-            "/%5c/evil.com",
-            "//evil.com/%2f%2e%2e",
-            "http:evil.com",
-            "//google.com%2fevil.com"
-        ])
-
-    fields = scenario.config.get("fields", ["next", "url", "redirect", "u", "returnTo", "target"])
+    """Open Redirect: Header and Meta-refresh bypasses using OOB for zero false-positives."""
+    fields = scenario.config.get("fields", ["next", "url", "redirect", "u", "returnTo", "target", "goto", "dest", "destination"])
     issues, lock, artifacts = [], threading.Lock(), []
 
     def check_redirect(field):
-        # Determine destination
+        # Determine destination - Always prioritize OOB to avoid false positives
         if client.oob_server:
             oob = client.oob_server.generate_payload(context=f"open_redirect_{field}")
             dest_url = oob["url"]
@@ -721,18 +708,22 @@ def run_open_redirect(client: HttpClient, scenario: SimpleScenario) -> Dict[str,
             dest_domain = "evil.com"
             token = None
 
+        # Build dynamic payloads using our target destination
         local_payloads = [dest_url, f"//{dest_domain}"]
         if scenario.config.get("aggressive"):
             local_payloads.extend([
                 f"/%09/{dest_domain}",
                 f"/%5c/{dest_domain}",
-                f"//{dest_domain}/%2f%2e%2e",
+                f"/%2f%2f{dest_domain}",
+                f"//google.com%2f{dest_domain}",
+                f"//google.com%2f%2e%2e%2f{dest_domain}",
                 f"http:{dest_domain}",
-                f"//google.com%2f{dest_domain}"
+                f"https://{dest_domain}%23.google.com"
             ])
 
         for p in local_payloads:
             if issues: break
+            
             # Aggressive bypass headers specific to this request
             bypass_headers = {
                 "X-Forwarded-Host": dest_domain,
@@ -740,30 +731,33 @@ def run_open_redirect(client: HttpClient, scenario: SimpleScenario) -> Dict[str,
                 "X-Rewrite-URL": f"/{field}={p}"
             }
             
+            # Send with redirects disabled to catch the Location header
             resp = client.send("GET", scenario.target, params={field: p}, headers=bypass_headers, allow_redirects=False)
             
             # Evidence collection
             location = resp.headers.get("Location", "")
             
-            # 1. OOB Validation (Zero False Positive)
-            if token and client.oob_server.verify(token, timeout=1):
+            # 1. OOB Validation (Zero False Positive Goal)
+            if token and client.oob_server.verify(token, timeout=1.5):
                 with lock:
-                    issues.append(f"CONFIRMED Open Redirect (OOB Callback) in '{field}' -> {p}")
-                    artifacts.append({"request": resp.request_dump, "response": "OOB Callback Received"})
+                    if not any(f"'{field}'" in iss for iss in issues):
+                        issues.append(f"CONFIRMED Open Redirect (OOB Callback Verified) in '{field}' using {p}")
+                        artifacts.append({"request": resp.request_dump, "response": f"OOB Interaction Detected for Token: {token}"})
                 break
 
-            # 2. Strict Header/URL Validation
-            # Check if Location header points to our destination OR if we were redirected there (if allow_redirects was True)
-            if dest_domain in location or dest_domain in resp.url:
-                # Double check to ensure it's not just a reflection or a partial match
-                parsed_loc = urllib.parse.urlparse(location if location else resp.url)
-                if parsed_loc.netloc == dest_domain or dest_domain in location:
+            # 2. Strict Header Validation
+            if location:
+                parsed_loc = urllib.parse.urlparse(location)
+                # Check if it points to our domain or starts with the full OOB URL
+                if dest_domain == parsed_loc.netloc or location.startswith(dest_url) or f"//{dest_domain}" in location:
                     with lock:
-                        issues.append(f"CONFIRMED Open Redirect in '{field}' -> {p}")
-                        artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+                        if not any(f"'{field}'" in iss for iss in issues):
+                            issues.append(f"CONFIRMED Open Redirect in '{field}' -> Explicit Location Header: {location}")
+                            artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
                     break
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    # Execute in parallel for speed
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         executor.map(check_redirect, fields)
 
     return {"scenario_id": scenario.id, "attack_type": "open_redirect", "passed": not issues, "details": issues, "artifacts": artifacts}
