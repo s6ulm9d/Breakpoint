@@ -124,16 +124,24 @@ class AdaptiveThrottler:
         """Determines if an attack should be skipped based on intensity and stability."""
         intensity = self.INTENSITY_MAP.get(attack_id, PayloadIntensity.MEDIUM)
         
-        # Rule 1: Skip EXTREME on dev
-        if intensity == PayloadIntensity.EXTREME and self.is_dev_env:
+        # Rule 1: NEVER skip if not in dev environment (localhost)
+        # Security pros want thorough scans on remote targets.
+        if not self.is_dev_env:
+            # Only skip if the server is technically DEAD (100% failure rate over 10+ requests)
+            if self.metrics.total_requests > 10 and self.metrics.failure_rate > 0.95:
+                return True
+            return False
+
+        # RULE: Skip EXTREME on dev always to prevent local crashes
+        if intensity == PayloadIntensity.EXTREME:
             return True
         
-        # Rule 2: Skip HEAVY if unstable
+        # Rule 2: Skip HEAVY if unstable (Dev Only)
         if intensity == PayloadIntensity.HEAVY and self.metrics.is_unstable:
             return True
         
-        # Rule 3: Skip MEDIUM if critically unstable
-        if intensity == PayloadIntensity.MEDIUM and self.metrics.failure_rate > 0.3: # Lowered from 0.5
+        # Rule 3: Skip MEDIUM if critically unstable (Dev Only)
+        if intensity == PayloadIntensity.MEDIUM and self.metrics.failure_rate > 0.7:
             return True
         
         return False

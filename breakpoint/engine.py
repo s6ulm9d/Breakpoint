@@ -630,9 +630,10 @@ class Engine:
             elif check_type in ["advanced_dos", "advanced_dos_checks", "slow_post", "slow_post_attack", "application_layer_dos"]: 
                 res_dict = omni.run_advanced_dos(client, s)
             elif check_type in ["clickjacking", "clickjacking_check"]:
-                s_copy = s
-                s_copy.id = "clickjacking" # Narrow the scope for the omni check
-                res_dict = omni.run_header_security_check(client, s_copy)
+                import copy
+                s_scoped = copy.copy(s)
+                s_scoped.id = "clickjacking" 
+                res_dict = omni.run_header_security_check(client, s_scoped)
             elif check_type in ["password_length", "password_length_dos"]:
                 res_dict = omni.run_password_length_dos(client, s)
             elif check_type in ["email_injection", "email_header_injection"]:
