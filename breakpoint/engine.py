@@ -604,7 +604,8 @@ class Engine:
             # PHASE 2: BASELINE STABILIZATION
             # Compute variance to ignore dynamic tokens (timestamps, IDs)
             variance_mask = ResponseStabilizer.get_variance_mask(client, s.method, s.target, params=s.config.get("params"), body=s.config.get("json_body"))
-            print(f"    -> Baseline Stabilized (Mask: {len(variance_mask)} volatile points).") if self.verbose else None
+            if self.verbose and len(variance_mask) > 100:
+                print(f"    -> Baseline Stabilized (Mask: {len(variance_mask)} volatile points).")
 
             # DISPATCHER (OMNI CONSOLIDATED)
             res_dict = {}
@@ -629,7 +630,9 @@ class Engine:
             elif check_type in ["advanced_dos", "advanced_dos_checks", "slow_post", "slow_post_attack", "application_layer_dos"]: 
                 res_dict = omni.run_advanced_dos(client, s)
             elif check_type in ["clickjacking", "clickjacking_check"]:
-                res_dict = omni.run_header_security_check(client, s)
+                s_copy = s
+                s_copy.id = "clickjacking" # Narrow the scope for the omni check
+                res_dict = omni.run_header_security_check(client, s_copy)
             elif check_type in ["password_length", "password_length_dos"]:
                 res_dict = omni.run_password_length_dos(client, s)
             elif check_type in ["email_injection", "email_header_injection"]:
@@ -958,6 +961,6 @@ class Engine:
                     print(f"{Fore.WHITE}{result.vulnerable_code}{Style.RESET_ALL}")
                 
                 # Evidence
-                print(f"\n {Fore.RED}{'Evidence:':<20}{Style.RESET_ALL} See artifacts/poc_*.py")
+                print(f"\n {Fore.RED}{'Evidence:':<20}{Style.RESET_ALL} See Consolidated Elite Audit Report for precise exploit payloads.")
                 
                 print(f"{Fore.RED}" + "="*60 + f"{Style.RESET_ALL}\n")
