@@ -1,7 +1,7 @@
-from .html_reporting import HtmlReporter
+from .reporting import EliteHTMLReporter
 from .sarif_reporting import SarifReporter
 from .engine import Engine
-from .scenarios import load_scenarios
+from .scenarios import load_scenarios, SimpleScenario, FlowScenario
 from .reporting import ConsoleReporter, generate_json_report
 from .metadata import get_metadata
 from .safety_lock import SafetyLock
@@ -259,7 +259,12 @@ def main():
 
     # Defaults
     if args.concurrency is None:
-        args.concurrency = 200 if args.aggressive else 50
+        if any(x in args.base_url.lower() for x in ["localhost", "127.0.0.1", "0.0.0.0", "::1"]):
+            args.concurrency = 15 if args.aggressive else 8
+            if args.verbose:
+                print(f"[*] Dev/Localhost detected: Capping concurrency to {args.concurrency} to ensure stability.")
+        else:
+            args.concurrency = 100 if args.aggressive else 40
     global_headers = {}
     if args.headers:
         for h in args.headers:
@@ -316,118 +321,106 @@ def main():
         available_module_ids = sorted(list(set([getattr(s, 'attack_type', s.type) for s in scenarios])))
         selected_module_ids = available_module_ids
 
-        # --- 1. MANUAL SELECTION (Bypasses AI completely) ---
-        if args.interactive or args.attacks:
-            if args.interactive:
-                print("\n[*] Initializing Interactive Attack Selector...")
-                choices = [questionary.Choice(m, checked=True) for m in available_module_ids]
-                selected_module_ids = questionary.checkbox(
-                    "Select attack modules to enable:",
-                    choices=choices,
-                    style=questionary.Style([
-                        ('qmark', 'fg:#ff5f00 bold'),
-                        ('question', 'bold'),
-                        ('answer', 'fg:#00afff bold'),
-                        ('pointer', 'fg:#00afff bold'),
-                        ('selected', 'fg:#00afff'),
-                        ('checkbox', 'fg:#00afff'),
-                        ('separator', 'fg:#6c6c6c'),
-                        ('instruction', 'fg:#6c6c6c italic'),
-                    ])
-                ).ask()
-                
-                if not selected_module_ids:
-                    print(f"{Fore.YELLOW}[!] No modules selected. Aborting run.{Style.RESET_ALL}")
-                    sys.exit(0)
-                print(f"[+] Interactive Mode: Running {len(selected_module_ids)} manually selected modules.")
+        # --- 1. MODULE SELECTION ---
+        if args.interactive:
+            import questionary
+            print("\n[*] Initializing Interactive Attack Selector...")
+            choices = [questionary.Choice(m, checked=True) for m in available_module_ids]
+            selected_module_ids = questionary.checkbox(
+                "Select attack modules to enable:",
+                choices=choices,
+                style=questionary.Style([
+                    ('qmark', 'fg:#ff5f00 bold'),
+                    ('question', 'bold'),
+                    ('answer', 'fg:#00afff bold'),
+                    ('pointer', 'fg:#00afff bold'),
+                    ('selected', 'fg:#00afff'),
+                    ('checkbox', 'fg:#00afff'),
+                    ('separator', 'fg:#6c6c6c'),
+                    ('instruction', 'fg:#6c6c6c italic'),
+                ])
+            ).ask()
+            if not selected_module_ids:
+                print(f"{Fore.YELLOW}[!] No modules selected. Aborting.{Style.RESET_ALL}")
+                sys.exit(0)
+        elif args.attacks:
+            requested = [a.strip().lower() for a in args.attacks.split(',')]
+            if "all" in requested:
+                selected_module_ids = available_module_ids
+                print(f"[*] Command line selection: Enabling ALL attack modules.")
             else:
-                requested = [a.strip().lower() for a in args.attacks.split(',')]
-                selected_module_ids = [m for m in selected_module_ids if m in requested]
-                print(f"[*] Manual override: Selected {len(selected_module_ids)} modules.")
+                selected_module_ids = [m for m in available_module_ids if m in requested]
+                print(f"[*] Command line selection: Running {len(selected_module_ids)} specific modules.")
+        
+        # Ensure we don't start the AI phase with 0 modules
+        if not selected_module_ids and available_module_ids:
+            selected_module_ids = available_module_ids
+            print(f"{Fore.YELLOW}[!] Warning: No valid modules matched your selection. Defaulting to ALL.{Style.RESET_ALL}")
 
-        # --- 2. AI SOURCE ANALYSIS (Only if --source is provided) ---
-        elif args.source:
-            openai_key = get_openai_key()
-            if not openai_key:
-                print(f"\n{Fore.RED}[!] ERROR: AI analysis of source code requires an OpenAI API key.{Style.RESET_ALL}")
-                print("[!] Please set your key first: 'breakpoint --openai-key <YOUR_KEY>'")
+        # --- MANDATORY CONNECTIVITY CHECK ---
+        print(f"[*] Verifying target connectivity: {args.base_url}...")
+        client = HttpClient(args.base_url, headers=global_headers)
+        try:
+            hb = client.send("GET", "/", timeout=5)
+            if hb.status_code == 0:
+                print(f"{Fore.RED}[!] ABORT: Target {args.base_url} is unreachable.{Style.RESET_ALL}")
                 sys.exit(1)
-            
-            # MANDATORY HEARTBEAT BEFORE ANALYSIS
-            print(f"[*] Verifying target connectivity: {args.base_url}...")
-            client = HttpClient(args.base_url, headers=global_headers)
-            try:
-                hb = client.send("GET", "/", timeout=5)
-                if hb.status_code == 0:
-                    print(f"{Fore.RED}[!] ABORT: Target {args.base_url} is unreachable.{Style.RESET_ALL}")
-                    sys.exit(1)
-            except Exception as e:
-                print(f"{Fore.RED}[!] ABORT: Connection failed: {e}{Style.RESET_ALL}")
-                sys.exit(1)
+        except Exception as e:
+            print(f"{Fore.RED}[!] ABORT: Connection failed: {e}{Style.RESET_ALL}")
+            sys.exit(1)
 
+        # --- 2. AI SOURCE ANALYSIS (One-Shot Footprinting) ---
+        if args.source:
             analyzer = AIAnalyzer(forensic_log=logger)
-            # 1. NEW: Strict Cross-Verification (Stop if mismatched)
-            is_match = analyzer.verify_source_match(args.source, args.base_url)
+            footprint = analyzer.perform_footprinting(args.source, args.base_url, available_module_ids)
             
-            if not is_match:
+            # A. Verification
+            if not footprint.get("match", True):
                 print(f"\n{Fore.RED}[!] ABORTING: Source code does not match the target URL.{Style.RESET_ALL}")
-                print(f"{Fore.RED}[!] AI analysis confirms this source project is unrelated to {args.base_url}.{Style.RESET_ALL}")
+                print(f"{Fore.RED}[!] AI Confidence: {footprint.get('confidence')}% | Reason: {footprint.get('reason')}{Style.RESET_ALL}")
                 print(f"[!] To run a generic scan without source verification, omit the --source flag.")
                 sys.exit(1)
             
-            # 2. AI Source Analysis (Smart Filtering)
-            selected_module_ids = analyzer.analyze_source_code(args.source, available_module_ids)
-            if not selected_module_ids:
-                selected_module_ids = available_module_ids
-                print("    [!] AI suggested 0 modules. Defaulting to full scan.")
-
-        # --- 3. URL-ONLY MODE (AI DISABLED) ---
+            # B. Module Filtering (Only if manual override not set)
+            if not args.attacks and not args.interactive:
+                selected_module_ids = footprint.get("modules", available_module_ids)
+                print(f"    [+] AI Phase: Smart filtering enabled ({len(selected_module_ids)} modules).")
+            
+            # C. Endpoint Discovery
+            discovered_surface = footprint.get("endpoints", [])
+            if discovered_surface:
+                print(f"    [+] AI Phase: {len(discovered_surface)} dynamic endpoints discovered.")
+                critical_modules = [
+                    "sql_injection", "nosql_injection", "rce", "ssti", 
+                    "lfi", "idor", "open_redirect", "xss", "prototype_pollution",
+                    "jwt_weakness", "mass_assignment", "tenant_isolation"
+                ]
+                for entry in discovered_surface:
+                    path, method, params = entry.get('path', '/'), entry.get('method', 'GET').upper(), entry.get('params', [])
+                    for mod_id in selected_module_ids:
+                        if mod_id in critical_modules:
+                             scenarios.append(SimpleScenario(
+                                 id=f"ai_{mod_id}_{path.replace('/', '_').strip('_')}",
+                                 type="simple", attack_type=mod_id, target=path, method=method,
+                                 config={"fields": params, "aggressive": args.aggressive}
+                             ))
+                print(f"    [+] Dynamic Surface: Added {len(scenarios) - len([s for s in scenarios if not s.id.startswith('ai_')])} targeted scenarios.")
         else:
-            print(f"\n{Fore.CYAN}[*] URL-ONLY MODE: AI Analysis Disabled (No source path provided).{Style.RESET_ALL}")
-            print(f"[*] Verifying target connectivity: {args.base_url}...")
-            client = HttpClient(args.base_url, headers=global_headers)
-            try:
-                hb = client.send("GET", "/", timeout=5)
-            except Exception as e:
-                print(f"{Fore.RED}[!] ABORT: Target {args.base_url} is unreachable. Error: {e}{Style.RESET_ALL}")
-                sys.exit(1)
-
-            if not args.attacks:
-                print("\n[*] Initializing Manual Attack Selector...")
-                import questionary
-                choices = [questionary.Choice(m, checked=True) for m in available_module_ids]
-                selected_module_ids = questionary.checkbox(
-                    "Select attack modules to enable for this scan:",
-                    choices=choices,
-                    style=questionary.Style([
-                        ('qmark', 'fg:#ff5f00 bold'),
-                        ('question', 'bold'),
-                        ('answer', 'fg:#00afff bold'),
-                        ('pointer', 'fg:#00afff bold'),
-                        ('selected', 'fg:#00afff'),
-                        ('checkbox', 'fg:#00afff'),
-                        ('separator', 'fg:#6c6c6c'),
-                        ('instruction', 'fg:#6c6c6c italic'),
-                    ])
-                ).ask()
-                
-                if not selected_module_ids:
-                    print(f"{Fore.YELLOW}[!] No modules selected. Aborting run.{Style.RESET_ALL}")
-                    sys.exit(0)
-            else:
-                requested = [a.strip().lower() for a in args.attacks.split(',')]
-                selected_module_ids = [m for m in available_module_ids if m in requested]
-                print(f"[*] Command line selection: Running {len(selected_module_ids)} modules.")
+             print(f"\n{Fore.CYAN}[*] URL-ONLY MODE: AI Analysis Disabled (No source path provided).{Style.RESET_ALL}")
 
         # FINAL SELECTION SUMMARY
         if args.source:
-             print(f"\n {Fore.CYAN}--- AI ANALYSIS COMPLETE ---{Style.RESET_ALL}")
-             print(f" AI has selected {Fore.YELLOW}{len(selected_module_ids)}{Style.RESET_ALL} relevant modules for this target:")
+             if selected_module_ids == available_module_ids and len(available_module_ids) > 0:
+                 print(f"\n {Fore.YELLOW}--- AI ANALYSIS SKIPPED/FAILED (FULL SCAN FALLBACK) ---{Style.RESET_ALL}")
+                 print(f" {Fore.YELLOW}[!] Using all {len(selected_module_ids)} available modules as a safe baseline.{Style.RESET_ALL}")
+             else:
+                 print(f"\n {Fore.CYAN}--- AI ANALYSIS COMPLETE ---{Style.RESET_ALL}")
+                 print(f" AI has selected {Fore.YELLOW}{len(selected_module_ids)}{Style.RESET_ALL} relevant modules for this target:")
         else:
              print(f"\n {Fore.CYAN}--- MODULE SELECTION ---{Style.RESET_ALL}")
              print(f" {Fore.YELLOW}{len(selected_module_ids)}{Style.RESET_ALL} modules configured for execution:")
         
-        sorted_modules = sorted(selected_module_ids)
+        sorted_modules = sorted(selected_module_ids) if selected_module_ids else []
         for i in range(0, len(sorted_modules), 4):
             chunk = sorted_modules[i:i+4]
             print(f"    • {', '.join(chunk)}")
@@ -493,7 +486,7 @@ def main():
         reporter.print_summary(results)
         forensic_meta = {"run_id": integrity["run_id"], "final_hash": integrity["final_hash"], "signature": integrity["signature"], "target": args.base_url, "iteration": iteration}
         if args.json_report: generate_json_report(results, args.json_report)
-        if args.html_report: HtmlReporter(args.html_report).generate(results, forensic_meta)
+        if args.html_report: EliteHTMLReporter(args.base_url).generate(results, args.html_report)
         if args.sarif_report: SarifReporter(args.sarif_report).generate(results)
         if not args.continuous: break
         if args.interval > 0: import time; time.sleep(args.interval)

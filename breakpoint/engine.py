@@ -17,6 +17,7 @@ from .agents import AdversarialLoop
 from .artifacts.poc_generator import PoCGenerator, ArtifactManager
 from .stac.generators import PytestGenerator, PlaywrightGenerator
 from .sandbox import Sandbox
+from .core.logic import ConfidenceEngine, RiskScoringEngine, EvidenceCollector
 
 # IMPACT MAPPING: Translate technical findings to enterprise-grade metadata
 ATTACK_METADATA = {
@@ -48,8 +49,31 @@ ATTACK_METADATA = {
     "null_byte": {"severity": "HIGH", "cwe": "CWE-158", "owasp": "A03:2021", "remediation": "Strip null bytes and use safe file handling APIs."},
     "archive_bomb": {"severity": "HIGH", "cwe": "CWE-409", "owasp": "A04:2021", "remediation": "Limit zip extraction size and depth. Use safe decompression libraries."},
     "cswsh": {"severity": "HIGH", "cwe": "CWE-1385", "owasp": "A01:2021", "remediation": "Validate the Origin header during WebSocket handshakes."},
-    "xs_leaks": {"severity": "LOW", "cwe": "CWE-200", "owasp": "A05:2021", "remediation": "Implement proper X-Frame-Options and Frame-Ancestors headers."},
-    "dependency_confusion": {"severity": "CRITICAL", "cwe": "CWE-829", "owasp": "A06:2021", "remediation": "Use scoped packages and verify integrity of all dependencies."},
+    "request_smuggling": {"severity": "CRITICAL", "cwe": "CWE-444", "owasp": "A06:2021", "remediation": "Use HTTP/2 entirely or ensure frontend/backend agree on TE/CL parsing."},
+    "http_desync": {"severity": "HIGH", "cwe": "CWE-444", "owasp": "A06:2021", "remediation": "Disable connection reuse for ambiguous requests."},
+    "jndi_injection": {"severity": "CRITICAL", "cwe": "CWE-917", "owasp": "A03:2021", "remediation": "Disable JNDI lookups or remove the JNDI lookup class from the classpath."},
+    "race_condition": {"severity": "HIGH", "cwe": "CWE-362", "owasp": "A01:2021", "remediation": "Use database transactions with proper isolation levels (Serializable) or distributed locks."},
+    "graphql_batching": {"severity": "MEDIUM", "cwe": "CWE-770", "owasp": "A04:2021", "remediation": "Disable batching or limit query complexity/depth."},
+    "xpath_injection": {"severity": "HIGH", "cwe": "CWE-91", "owasp": "A03:2021", "remediation": "Use parameterized XPath queries or pre-compiled path expressions."},
+    "ldap_injection": {"severity": "HIGH", "cwe": "CWE-90", "owasp": "A03:2021", "remediation": "Escape LDAP filter characters or use framework-provided safe search methods."},
+    "zip_slip": {"severity": "HIGH", "cwe": "CWE-22", "owasp": "A01:2021", "remediation": "Validate filenames in archives against path traversal before extraction."},
+}
+
+ATTACK_IMPACTS = {
+    "sql_injection": "Unauthorized database access, data theft, and potential administrative takeover.",
+    "nosql_injection": "Authentication bypass and unauthorized document access.",
+    "rce": "Full system compromise. Attacker can execute arbitrary commands as the application user.",
+    "lfi": "Exposure of sensitive system files (/etc/passwd, configuration files) and potential RCE via log poisoning.",
+    "ssrf": "Internal network scanning and access to sensitive cloud metadata services.",
+    "xss": "Session hijacking, credential theft, and defacement of the application for users.",
+    "idor": "Unauthorized access to private user data, orders, or restricted administrative records.",
+    "jwt_weakness": "Authentication bypass, allowing attackers to forge identities.",
+    "mass_assignment": "Elevation of privilege by updating protected database fields.",
+    "tenant_isolation": "Cross-tenant data leakage in a multi-tenant environment.",
+    "header_security": "Increased susceptibility to Clickjacking and MIME-type sniffing attacks.",
+    "clickjacking": "Users can be tricked into performing unintended actions on the site.",
+    "open_redirect": "Phishing attacks by redirecting users to malicious domains.",
+    "prototype_pollution": "Potential RCE or logic bypass in JavaScript environments.",
 }
 
 import threading as _threading
@@ -77,6 +101,8 @@ class Engine:
         self.e2e_gen = PlaywrightGenerator()
         self.sandbox = Sandbox()
         self.adv_loop = AdversarialLoop(sandbox=self.sandbox)
+        self.evidence_collector = EvidenceCollector()
+        self.static_findings = []
         
         # Use provided logger or create a new one
         self.logger = forensic_log if forensic_log else ForensicLogger(verbose=verbose)
@@ -94,12 +120,18 @@ class Engine:
         # 1. OOB Service (Enabled by default)
         self.oob_enabled = enable_oob
         if self.oob_enabled:
-            from .oob import OOBCorrelator
-            self.oob_correlator = OOBCorrelator()
-            if self.verbose:
-                print("[*] OOB Service: ENABLED (Blind vulnerability detection active)")
+            from .core.oob import OOBServer
+            # Start the OOB server if not already running
+            self.oob_server = OOBServer()
+            try:
+                self.oob_server.start()
+                if self.verbose:
+                    print(f"[*] OOB Server: LISTENING (Port {self.oob_server.port})")
+            except Exception as e:
+                print(f"[!] OOB Server startup failed: {e}")
+                self.oob_server = None
         else:
-            self.oob_correlator = None
+            self.oob_server = None
             if self.verbose:
                 print("[*] OOB Service: DISABLED")
         
@@ -121,7 +153,14 @@ class Engine:
         # 4. Target Context (Will be populated by fingerprinter)
         from .core.context import TargetContext
         self.context = TargetContext(base_url=self.base_url)
-        self.context.oob_provider = self.oob_correlator  # Inject OOB into context
+        self.context.oob_provider = self.oob_server  # Inject OOB into context
+
+        # 5. Elite Reporting (Per-Attack)
+        from .reporting import EliteHTMLReporter
+        self.reporter = EliteHTMLReporter(target_url=self.base_url)
+        self.reports_dir = os.path.join("artifacts", "reports")
+        if not os.path.exists(self.reports_dir):
+             os.makedirs(self.reports_dir)
 
         self._check_connection()
 
@@ -149,6 +188,10 @@ class Engine:
         print(f"[*] Verifying target connectivity: {self.base_url}...")
         from .http_client import HttpClient
         client = HttpClient(self.base_url, verbose=self.verbose, headers=self.headers)
+        
+        # Inject OOB Server into client
+        if hasattr(self, 'oob_enabled') and self.oob_enabled and self.oob_server:
+            client.oob_server = self.oob_server
         try:
             hb_resp = client.send("GET", "/", timeout=5)
             if hb_resp.status_code == 0:
@@ -193,6 +236,12 @@ class Engine:
                 print(f"       • {item}")
         else:
             print(f"    -> Tech Stack: Unable to fingerprint (generic target)")
+        
+        # RUN ELITE STATIC ANALYSIS FIRST
+        if self.static_analyzer:
+            print(f"[*] Starting Elite Static Analysis (SSA-based Taint Tracking)...")
+            self.static_findings = self.static_analyzer.analyze()
+            print(f"    -> Static Analysis Complete: {len(self.static_findings)} flow patterns identified.")
         
         crawler = Crawler(self.base_url, client)
         print(f"    -> Starting recursive discovery (Max Depth: 3)...")
@@ -262,6 +311,22 @@ class Engine:
                             try:
                                 result = future.result()
                                 
+                                # RECORD IN GRAPH & UNLOCK DEPENDENCIES
+                                self.attack_graph.record_finding(result.type, result)
+                                
+                                # CHECK FOR UNLOCKED ATTACKS
+                                next_ids = self.attack_graph.get_next_attacks(max_count=3)
+                                if next_ids:
+                                    for nid in next_ids:
+                                        # Find scenario in global pool if not already run
+                                        matched = [s for s in std_scenarios if s.id == nid and s.id not in self.attack_graph.completed_attacks]
+                                        if matched:
+                                            # Prioritize this scenario by injecting it into the iterator or next batch
+                                            # For simplicity, we just submit it now
+                                            new_future = executor.submit(self._execute_scenario, matched[0])
+                                            future_to_std[new_future] = matched[0]
+                                            total_to_process += 1
+                                
                                 # DEDUPLICATION CHECK
                                 if result.status == "VULNERABLE":
                                     if self._is_duplicate(result):
@@ -275,7 +340,7 @@ class Engine:
                                     self.logger.log_event("VULNERABILITY_CANDIDATE", {"id": scenario.id, "type": result.type})
                                     
                                     # Attempt to 'break' (validate) it fully
-                                    snippet = "Source unavailable"
+                                    snippet = result.vulnerable_code if hasattr(result, 'vulnerable_code') and result.vulnerable_code else "Source unavailable"
                                     
                                     # New Agent Logic returns dict
                                     validation_result = self.adv_loop.run(
@@ -291,7 +356,7 @@ class Engine:
                                     if validation_result["status"] == "CONFIRMED":
                                         result.confidence = "CONFIRMED"
                                         result.status = "CONFIRMED"
-                                        print(f"    {Fore.GREEN}[+] VALIDATOR CONFIRMED: Checks passed.{Style.RESET_ALL}")
+                                        print(f"    {Fore.GREEN}[+] ADVERSARIAL VALIDATION SUCCESS: Exploitation route verified and confirmed.{Style.RESET_ALL}")
                                         
                                         # PHASE 3: ARTIFACT GENERATION
                                         # Generate PoC
@@ -317,7 +382,7 @@ class Engine:
                                     elif validation_result["status"] == "SUSPECT":
                                         result.confidence = validation_result["confidence"]
                                         result.status = "SUSPECT"
-                                        print(f"    [?] VALIDATOR SUSPECT: Partial reproduction. ({validation_result['details']})")
+                                        print(f"    {Fore.YELLOW}[?] ADVERSARIAL VALIDATION PARTIAL: Indicator of vulnerability detected but full exploit unconfirmed. ({validation_result['details']}){Style.RESET_ALL}")
                                     elif validation_result["status"] == "UNVERIFIED":
                                         result.confidence = "LOW"
                                         result.status = "VULNERABLE" 
@@ -339,8 +404,7 @@ class Engine:
                                     print(f"    {Fore.GREEN}[+] AUTO-CONFIRMED: {result.type} verified.{Style.RESET_ALL}")
 
                                 results.append(result)
-                                if result.status != "SECURE":
-                                    self._print_result(scenario, result)
+                                self._print_result(scenario, result)
                                 
                                 if result.status == "BLOCKED" and not self.thorough: 
                                     rate_limit_hits += 1
@@ -349,6 +413,7 @@ class Engine:
                                     if rate_limit_hits > limit:
                                         print(f"\n{Fore.YELLOW}[!] CRITICAL: Target is aggressively rate-limiting (429/403). Aborting to avoid total lockout.{Style.RESET_ALL}")
                                         shutdown_event.set()
+                                        Engine.SHUTDOWN_SIGNAL = True
                                         break
                                 elif result.status == "BLOCKED" and self.thorough:
                                      if self.verbose: print(f"{Fore.YELLOW}    [!] BLOCKED but THOROUGH mode is active. Continuing scan.{Style.RESET_ALL}")
@@ -356,15 +421,15 @@ class Engine:
                                 if result.status == "ERROR" and "Target Unresponsive" in result.details:
                                     print(f"\n{Fore.RED}[!] FATAL: Target at {self.base_url} is unresponsive or crashed. Aborting scan.{Style.RESET_ALL}")
                                     shutdown_event.set()
+                                    Engine.SHUTDOWN_SIGNAL = True
                                     break
                                 
                             except Exception as exc:
-                                if not Engine.SHUTDOWN_SIGNAL:
                                     # Use the new CheckResult constructor for errors too
-                                    meta = ATTACK_METADATA.get(scenario.type, {"severity": "INFO", "cwe": "N/A", "owasp": "N/A", "remediation": "N/A"})
+                                    meta = ATTACK_METADATA.get(s.type if hasattr(s, 'type') else "unknown", {"severity": "INFO", "cwe": "N/A", "owasp": "N/A", "remediation": "N/A"})
                                     results.append(CheckResult(
                                         id=scenario.id,
-                                        type=scenario.type or "unknown",
+                                        type=check_type,
                                         status="ERROR",
                                         severity=meta["severity"],
                                         details=f"Exception: {str(exc)}",
@@ -374,6 +439,31 @@ class Engine:
                                         remediation=meta["remediation"],
                                         artifacts=None
                                     ))
+
+                # FILL REMAINING IF ABORTED (Ensure 100% reporting coverage)
+                if shutdown_event.is_set() or Engine.SHUTDOWN_SIGNAL:
+                    # Cleanly consume the iterator to find what was left behind
+                    while True:
+                        try:
+                            s = next(scenario_iterator)
+                            meta = ATTACK_METADATA.get(s.type if hasattr(s, 'type') else "unknown", {"severity": "INFO", "cwe": "N/A", "owasp": "N/A", "remediation": "N/A"})
+                            results.append(CheckResult(
+                                id=s.id, type=getattr(s, 'type', 'unknown'), status="SKIPPED", severity="INFO",
+                                details="Scan Aborted: Target became unstable or blocked.", confidence="LOW",
+                                cwe=meta["cwe"], owasp=meta["owasp"], remediation=meta["remediation"]
+                            ))
+                        except StopIteration: break
+                    
+                    # Also collect any in-flight futures that we cancelled
+                    for future, s in future_to_std.items():
+                        if s.id not in [r.id for r in results]:
+                            meta = ATTACK_METADATA.get(s.type if hasattr(s, 'type') else "unknown", {"severity": "INFO", "cwe": "N/A", "owasp": "N/A", "remediation": "N/A"})
+                            results.append(CheckResult(
+                                id=s.id, type=getattr(s, 'type', 'unknown'), status="SKIPPED", severity="INFO",
+                                details="Scan Aborted: Task cancelled during execution.", confidence="LOW",
+                                cwe=meta["cwe"], owasp=meta["owasp"], remediation=meta["remediation"]
+                            ))
+
 
             # PHASE 4: Destructive / DoS Scenarios
             if dos_scenarios and not shutdown_event.is_set():
@@ -458,6 +548,8 @@ class Engine:
             return False
 
     def _execute_scenario(self, s: Scenario) -> CheckResult:
+        import uuid
+        attack_id = f"BRK-{uuid.uuid4().hex[:8].upper()}"
         try:
             check_type = s.attack_type if getattr(s, 'type', '') == 'simple' and hasattr(s, 'attack_type') else s.type
             
@@ -486,28 +578,13 @@ class Engine:
             if delay > 0:
                 time.sleep(delay)
             
-            # SIMULATION CHECK
-            from breakpoint.metadata import get_metadata
-            meta = get_metadata(check_type)
-            if self.simulation and meta.get("destructive", False):
-                # Use ATTACK_METADATA for severity, cwe, owasp, remediation
-                attack_meta = ATTACK_METADATA.get(check_type, {"severity": "INFO", "cwe": "N/A", "owasp": "N/A", "remediation": "N/A"})
-                return CheckResult(
-                    id=s.id,
-                    type=check_type,
-                    status="SIMULATED",
-                    severity=attack_meta["severity"],
-                    details=f"[SIMULATION MODE] Impact Assessment: {meta.get('impact_simulation')}",
-                    confidence="SIMULATED",
-                    cwe=attack_meta["cwe"],
-                    owasp=attack_meta["owasp"],
-                    remediation=attack_meta["remediation"]
-                )
 
             from .http_client import HttpClient
             from .attacks import omni
             
             client = HttpClient(self.base_url, verbose=self.verbose, headers=self.headers)
+            if hasattr(self, 'oob_enabled') and self.oob_enabled and self.oob_server:
+                client.oob_server = self.oob_server
             
             with self._cache_lock:
                 if s.target in self._dead_paths and not self.thorough:
@@ -534,92 +611,113 @@ class Engine:
 
             # DISPATCHER (OMNI CONSOLIDATED)
             res_dict = {}
-            if check_type in ["header_security", "security_headers"]: res_dict = omni.run_header_security_check(client, s)
-            elif check_type in ["ssrf", "ssrf_scan"]: res_dict = omni.run_ssrf_attack(client, s)
-            elif check_type in ["rce", "react2shell", "rce_params_post"]: res_dict = omni.run_rce_attack(client, s)
-            elif check_type in ["xss", "xss_reflected"]: res_dict = omni.run_xss_scan(client, s)
-            elif check_type == "crlf_injection": res_dict = omni.run_crlf_injection(client, s)
-            elif check_type == "prototype_pollution": res_dict = omni.run_prototype_pollution(client, s)
-            elif check_type in ["sql_injection", "sqli_blind_time", "blind_sqli_destructive"]: res_dict = omni.run_sqli_attack(client, s)
-            elif check_type == "open_redirect": res_dict = omni.run_open_redirect(client, s)
-            elif check_type in ["brute_force", "brute_force_basic"]: res_dict = omni.run_brute_force(client, s)
-            elif check_type in ["advanced_dos", "advanced_dos_checks"]: res_dict = omni.run_advanced_dos(client, s)
-            elif check_type == "debug_exposure": res_dict = omni.run_debug_exposure(client, s)
-            elif check_type in ["secret_leak", "secret_leak_check"]: res_dict = omni.run_secret_leak(client, s)
-            elif check_type in ["swagger_exposure", "swagger_ui_exposure"]: res_dict = omni.run_swagger_check(client, s)
-            elif check_type in ["git_exposure", "git_exposure_check"]: res_dict = omni.run_git_exposure(client, s)
-            elif check_type in ["env_exposure", "env_exposure_check"]: res_dict = omni.run_env_exposure(client, s)
-            elif check_type in ["phpinfo", "phpinfo_exposure"]: res_dict = omni.run_phpinfo(client, s)
-            elif check_type in ["ds_store_exposure", "ds_store"]: res_dict = omni.run_ds_store(client, s)
-            elif check_type in ["ssti", "ssti_template_injection"]: res_dict = omni.run_ssti_attack(client, s)
-            elif check_type in ["insecure_deserialization", "deserialization_rce"]: res_dict = omni.run_insecure_deserialization(client, s)
-            elif check_type in ["jwt_weakness", "jwt_none_alg"]: res_dict = omni.run_jwt_attack(client, s)
-            elif check_type in ["jwt_brute", "jwt_weak_key_brute"]: res_dict = omni.run_jwt_brute(client, s)
-            elif check_type in ["idor", "idor_numeric"]: res_dict = omni.run_idor_check(client, s)
-            elif check_type in ["lfi", "lfi_path_traversal"]: res_dict = omni.run_lfi_attack(client, s)
-            elif check_type in ["clickjacking", "clickjacking_check"]: res_dict = omni.run_clickjacking(client, s)
-            elif check_type == "cors_origin": res_dict = omni.run_cors_misconfig(client, s)
-            elif check_type == "host_header": res_dict = omni.run_host_header_injection(client, s)
-            elif check_type in ["email_injection", "email_header_injection"]: res_dict = omni.run_email_injection(client, s)
-            elif check_type in ["nosql_injection", "nosql_injection_login"]: res_dict = omni.run_nosql_injection(client, s)
-            elif check_type in ["ldap_injection", "ldap_injection_search"]: res_dict = omni.run_ldap_injection(client, s)
-            elif check_type in ["xpath_injection", "xpath_injection_xml"]: res_dict = omni.run_xpath_injection(client, s)
-            elif check_type == "ssi_injection": res_dict = omni.run_ssi_injection(client, s)
-            elif check_type in ["request_smuggling", "http_request_smuggling"]: res_dict = omni.run_request_smuggling(client, s)
-            elif check_type == "graphql_introspection": res_dict = omni.run_graphql_introspection(client, s)
-            elif check_type == "graphql_batching": res_dict = omni.run_graphql_batching(client, s)
-            elif check_type in ["log4shell", "cve_log4shell", "log4shell_recursive_delete"]: res_dict = omni.run_cve_log4shell(client, s)
-            elif check_type in ["cache_deception", "cache_poison_check"]: res_dict = omni.run_cache_deception(client, s)
-            elif check_type == "race_condition": res_dict = omni.run_race_condition(client, s)
-            elif check_type == "otp_reuse": res_dict = omni.run_otp_reuse(client, s)
-            elif check_type in ["rsc_server_action_forge", "server_side_action_forge"]: res_dict = omni.run_rsc_server_action_forge(client, s)
-            elif check_type in ["rsc_ssr_ssrf", "rsc_framework_ssrf"]: res_dict = omni.run_ssr_ssrf(client, s)
-            elif check_type in ["rsc_hydration_collapse", "hydration_collapse"]: res_dict = omni.run_hydration_collapse(client, s)
+            if check_type in ["header_security", "security_headers", "security_header_misconfiguration"]: 
+                res_dict = omni.run_header_security_check(client, s)
+            elif check_type in ["ssrf", "ssrf_scan", "blind_ssrf", "ssrf_cloud_metadata", "rsc_ssr_ssrf", "rsc_framework_ssrf"]: 
+                res_dict = omni.run_ssrf_attack(client, s)
+            elif check_type in ["rce", "react2shell", "rce_params_post", "os_command_injection", "code_injection", "cve_2024_nodejs_rce", "ghostscript_rce", "imagick_rce", "ruby_on_rails_rce_cve", "spring_cloud_function_rce", "confluence_rce_cve", "f5_big_ip_rce", "citric_adc_rce", "vmware_vcenter_rce", "outlook_cve_rce", "electron_rce_ipc", "tauri_rce_bypass", "rce_reverse_shell_attempt", "shellshock", "rce_shell_shock"]: 
+                res_dict = omni.run_rce_attack(client, s)
+            elif check_type in ["xss", "xss_reflected", "stored_xss", "reflected_xss"]: 
+                res_dict = omni.run_xss_scan(client, s)
+            elif check_type in ["crlf_injection", "http_response_splitting"]: 
+                res_dict = omni.run_crlf_injection(client, s)
+            elif check_type == "prototype_pollution": 
+                res_dict = omni.run_prototype_pollution(client, s)
+            elif check_type in ["sql_injection", "sqli_blind_time", "blind_sqli_destructive", "blind_sqli", "union_sqli", "time_sqli", "error_sqli", "second_order_sqli"]: 
+                res_dict = omni.run_sqli_attack(client, s)
+            elif check_type in ["open_redirect", "malicious_redirect"]: 
+                res_dict = omni.run_open_redirect(client, s)
+            elif check_type in ["brute_force", "brute_force_basic", "broken_authentication", "authentication_bypass", "credential_stuffing", "authorization_bypass", "api_auth_bypass", "api_authorization_bypass"]: 
+                res_dict = omni.run_brute_force(client, s)
+            elif check_type in ["advanced_dos", "advanced_dos_checks", "slow_post", "slow_post_attack", "application_layer_dos"]: 
+                res_dict = omni.run_advanced_dos(client, s)
+            elif check_type in ["clickjacking", "clickjacking_check"]:
+                res_dict = omni.run_header_security_check(client, s)
+            elif check_type in ["password_length", "password_length_dos"]:
+                res_dict = omni.run_password_length_dos(client, s)
+            elif check_type in ["email_injection", "email_header_injection"]:
+                res_dict = omni.run_email_injection(client, s)
+            elif check_type in ["replay_simple", "auth_replay_check"]:
+                res_dict = omni.run_replay_check(client, s)
+            elif check_type in ["debug_exposure", "debug_mode_exposure", "stack_trace_disclosure", "source_code_disclosure", "directory_listing_exposure", "webpack_sourcemap_leak", "node_inspect_vulnerability", "flask_debug_leak", "react_native_debugger_exposure"]: 
+                res_dict = omni.run_debug_exposure(client, s)
+            elif check_type in ["secret_leak", "secret_leak_check", "secret_leak_scan", "firebase_db_exposure", "s3_bucket_enumeration", "ssh_key_leak", "npm_auth_token_leak", "django_secret_key_leak"]: 
+                res_dict = omni.run_secret_leak(client, s)
+            elif check_type in ["swagger_exposure", "swagger_ui_exposure"]: 
+                res_dict = omni.run_swagger_check(client, s)
+            elif check_type in ["git_exposure", "git_exposure_check"]: 
+                res_dict = omni.run_git_exposure(client, s)
+            elif check_type in ["env_exposure", "env_exposure_check"]: 
+                res_dict = omni.run_env_exposure(client, s)
+            elif check_type in ["phpinfo", "phpinfo_exposure"]: 
+                res_dict = omni.run_phpinfo(client, s)
+            elif check_type in ["ds_store_exposure", "ds_store"]: 
+                res_dict = omni.run_ds_store(client, s)
+            elif check_type in ["ssti", "ssti_template_injection", "exotic_injection_template"]: 
+                res_dict = omni.run_ssti_attack(client, s)
+            elif check_type in ["insecure_deserialization", "deserialization_rce", "object_injection", "phar_deserialization", "python_pickle_deserialization", "rsc_payload_deserialization", "java_rmi_deserialization", "asp_net_viewstate_mac"]: 
+                res_dict = omni.run_insecure_deserialization(client, s)
+            elif check_type in ["jwt_weakness", "jwt_none_alg", "jwt_signature_bypass", "jwt_key_confusion"]: 
+                res_dict = omni.run_jwt_attack(client, s)
+            elif check_type in ["jwt_brute", "jwt_weak_key_brute"]: 
+                res_dict = omni.run_jwt_brute(client, s)
+            elif check_type in ["idor", "idor_numeric", "mass_assignment", "mass_assignment_user", "hidden_form_field_manipulation", "access_control_bypass", "excessive_data_exposure"]: 
+                res_dict = omni.run_idor_check(client, s)
+            elif check_type in ["lfi", "lfi_path_traversal", "rfi", "path_traversal", "directory_traversal", "local_file_inclusion_etc_passwd", "file_inclusion_polyglot"]: 
+                res_dict = omni.run_lfi_attack(client, s)
+            elif check_type == "cors_origin": 
+                res_dict = omni.run_cors_misconfig(client, s)
+            elif check_type in ["host_header", "host_header_injection", "host_header_cache_poisoning"]: 
+                res_dict = omni.run_host_header_injection(client, s)
+            elif check_type in ["nosql_injection", "nosql_injection_login"]: 
+                res_dict = omni.run_nosql_injection(client, s)
+            elif check_type in ["ldap_injection", "ldap_injection_search"]: 
+                res_dict = omni.run_ldap_injection(client, s)
+            elif check_type in ["xpath_injection", "xpath_injection_xml"]: 
+                res_dict = omni.run_xpath_injection(client, s)
+            elif check_type == "ssi_injection": 
+                res_dict = omni.run_ssi_injection(client, s)
+            elif check_type in ["request_smuggling", "http_request_smuggling", "chunked_encoding_smuggling", "te_cl_desync", "cl_te_desync", "h2c_smuggling", "cl_cl_desync_probe", "te_te_desync_probe"]: 
+                res_dict = omni.run_request_smuggling(client, s)
+            elif check_type in ["http_desync", "http_desync_attack"]: 
+                res_dict = omni.run_http_desync(client, s)
+            elif check_type in ["graphql_introspection", "graphql_batching", "graphql_alias_overload", "graphql_circular_frag"]: 
+                res_dict = omni.run_graphql_introspection(client, s)
+            elif check_type in ["log4shell", "cve_log4shell", "log4shell_recursive_delete", "log4shell_obfuscated", "log4shell_jndi_ldap_bypass"]: 
+                res_dict = omni.run_cve_log4shell(client, s)
+            elif check_type in ["cache_deception", "cache_poison_check", "web_cache_poisoning", "web_cache_deception", "cdn_cache_key_confusion", "edge_cache_poisoning", "nextjs_cache_poison"]: 
+                res_dict = omni.run_cache_deception(client, s)
+            elif check_type in ["race_condition", "duplicate_transaction", "duplicate_payment", "coupon_reuse", "refund_logic"]: 
+                res_dict = omni.run_race_condition(client, s)
+            elif check_type == "otp_reuse": 
+                res_dict = omni.run_otp_reuse(client, s)
+            elif check_type in ["rsc_server_action_forge", "server_side_action_forge", "rsc_action_id_brute"]: 
+                res_dict = omni.run_rsc_server_action_forge(client, s)
+            elif check_type in ["rsc_hydration_collapse", "hydration_collapse", "rsc_suspense_leak"]: 
+                res_dict = omni.run_hydration_collapse(client, s)
             elif check_type in ["rsc_flight_trust_boundary_violation", "rsc_flight_deserialization_abuse", "trust_boundary_violation", "react_server_component_injection"]:
                 res_dict = omni.run_flight_trust_boundary_violation(client, s)
             elif check_type in ["json_bomb", "json_bomb_attack"]: res_dict = omni.run_json_bomb(client, s)
-            elif check_type == "http_desync": res_dict = omni.run_http_desync(client, s)
-            elif check_type == "poodle": res_dict = omni.run_poodle_check(client, s)
-            elif check_type in ["dos_extreme", "slowloris", "dos_slowloris", "traffic_spike", "password_length", "replay_simple", "dos_extreme_high_concurrency_stress_mode"]:
-                res_dict = omni.run_dos_extreme(client, s) 
             elif check_type in ["redos", "redos_validation_attack"]: res_dict = omni.run_redos(client, s)
-            elif check_type == "xml_bomb": res_dict = omni.run_xml_bomb(client, s)
-            elif check_type == "advanced_dos": res_dict = omni.run_advanced_dos(client, s)
+            elif check_type in ["xml_bomb", "fast-xml-parser-rce"]: res_dict = omni.run_xml_bomb(client, s)
             elif check_type in ["xxe_exfil", "xxe_external_entity"]: res_dict = omni.run_xxe_exfil(client, s)
             elif check_type in ["malformed_json_check", "malformed_json"]: res_dict = omni.run_malformed_json(client, s)
-            elif check_type == "file_upload_abuse": res_dict = omni.run_file_upload_abuse(client, s)
-            elif check_type == "zip_slip": res_dict = omni.run_zip_slip(client, s)
-            elif check_type == "rsc_cache_poisoning": res_dict = omni.run_rsc_cache_poisoning(client, s)
-            elif check_type == "cve_spring4shell": res_dict = omni.run_cve_spring4shell(client, s)
-            elif check_type in ["cve_struts2", "struts2_rce"]: res_dict = omni.run_cve_struts2(client, s)
-            elif check_type == "shellshock": res_dict = omni.run_shellshock(client, s)
-            elif check_type == "union_sqli": res_dict = omni.run_union_sqli(client, s)
-            elif check_type == "second_order_sqli": res_dict = omni.run_second_order_sqli(client, s)
-            elif check_type == "graphql_depth": res_dict = omni.run_graphql_depth_attack(client, s)
+            elif check_type in ["file_upload_abuse", "unrestricted_file_upload", "malicious_file_upload", "file_type_validation_bypass", "polyglot_file_upload", "content_type_confusion", "file_overwrite_upload", "file_upload_shell"]: 
+                res_dict = omni.run_file_upload_abuse(client, s)
+            elif check_type in ["zip_slip", "zip_slip_path_traversal"]: res_dict = omni.run_zip_slip(client, s)
+            elif check_type in ["cve_spring4shell", "spring4shell"]: res_dict = omni.run_cve_spring4shell(client, s)
+            elif check_type in ["cve_struts2", "struts2_rce", "struts2_s2_061"]: res_dict = omni.run_cve_struts2(client, s)
             elif check_type in ["elasticsearch_injection", "es_injection"]: res_dict = omni.run_elasticsearch_injection(client, s)
             elif check_type in ["search_injection", "server_side_search"]: res_dict = omni.run_server_side_search_injection(client, s)
-            elif check_type in ["parameter_pollution", "hpp"]: res_dict = omni.run_parameter_pollution(client, s)
-            elif check_type == "dom_xss": res_dict = omni.run_dom_xss_check(client, s)
-            elif check_type == "mutation_xss": res_dict = omni.run_mutation_xss(client, s)
-            elif check_type == "svg_injection": res_dict = omni.run_svg_injection(client, s)
-            elif check_type == "css_injection": res_dict = omni.run_css_injection(client, s)
-            elif check_type == "csrf": res_dict = omni.run_csrf_check(client, s)
-            elif check_type == "csti": res_dict = omni.run_csti_attack(client, s)
+            elif check_type in ["parameter_pollution", "hpp", "wpp", "parameter_smuggling"]: res_dict = omni.run_parameter_pollution(client, s)
+            elif check_type in ["csrf", "login_csrf", "samesite_cookie_bypass"]: res_dict = omni.run_csrf_check(client, s)
             elif check_type == "password_reset_poisoning": res_dict = omni.run_password_reset_poisoning(client, s)
-            elif check_type == "session_fixation": res_dict = omni.run_session_fixation(client, s)
-            elif check_type == "mass_assignment": res_dict = omni.run_mass_assignment(client, s)
-            elif check_type == "tenant_isolation": res_dict = omni.run_tenant_isolation_check(client, s)
-            elif check_type == "oauth_redirect": res_dict = omni.run_oauth_redirect_manipulation(client, s)
-            elif check_type == "unicode_bypass": res_dict = omni.run_unicode_normalization_bypass(client, s)
-            elif check_type == "double_encoding": res_dict = omni.run_double_encoding_bypass(client, s)
-            elif check_type == "verb_tampering": res_dict = omni.run_verb_tampering(client, s)
-            elif check_type == "null_byte": res_dict = omni.run_null_byte_injection(client, s)
-            elif check_type == "slow_post": res_dict = omni.run_slow_post_attack(client, s)
-            elif check_type == "archive_bomb": res_dict = omni.run_archive_bomb(client, s)
-            elif check_type in ["cswsh", "websocket_hijacking"]: res_dict = omni.run_websocket_hijacking_check(client, s)
-            elif check_type == "browser_api_abuse": res_dict = omni.run_browser_api_abuse_probe(client, s)
-            elif check_type == "xs_leaks": res_dict = omni.run_xs_leaks_probe(client, s)
-            elif check_type == "dependency_confusion": res_dict = omni.run_dependency_confusion_check(client, s)
+            elif check_type in ["session_fixation", "session_hijacking", "token_replay_attack"]: res_dict = omni.run_session_fixation(client, s)
+            elif check_type in ["tenant_isolation", "tenant_isolation_bypass", "cross_tenant_data_exposure"]: res_dict = omni.run_tenant_isolation_check(client, s)
+            elif check_type in ["oauth_redirect", "oauth_redirect_uri_manipulation"]: res_dict = omni.run_oauth_redirect_manipulation(client, s)
+            elif check_type in ["verb_tampering", "http_verb_tampering", "http_method_override"]: res_dict = omni.run_verb_tampering(client, s)
+            elif check_type in ["archive_bomb", "zip_bomb"]: res_dict = omni.run_archive_bomb(client, s)
+            elif check_type == "poodle": res_dict = omni.run_poodle_check(client, s)
             else:
                 # Use ATTACK_METADATA for severity, cwe, owasp, remediation
                 attack_meta = ATTACK_METADATA.get(check_type, {"severity": "INFO", "cwe": "N/A", "owasp": "N/A", "remediation": "N/A"})
@@ -653,16 +751,35 @@ class Engine:
                 status=status,
                 severity=meta["severity"] if status in ["VULNERABLE", "CONFIRMED", "SUSPECT"] else "INFO",
                 details=str(res_dict.get("details", "")),
-                confidence=res_dict.get("confidence", "TENTATIVE") if status == "VULNERABLE" else "P.O.C",
+                confidence=res_dict.get("confidence", "TENTATIVE"), 
                 cwe=meta["cwe"],
                 owasp=meta["owasp"],
                 remediation=meta["remediation"],
-                artifacts=res_dict.get("artifacts")
+                artifacts=res_dict.get("artifacts", [])
             )
+            
+            # --- ELITE SCORING PASS ---
+            if result.status in ["VULNERABLE", "CONFIRMED", "SUSPECT"]:
+                # 1. Calc Confidence
+                result.confidence = ConfidenceEngine.calculate(
+                    result, 
+                    static_findings=self.static_findings,
+                    ai_confirmed=(result.status == "CONFIRMED")
+                )
+                
+                # 2. Calc Risk
+                risk = RiskScoringEngine.evaluate(result)
+                result.description = f"{ATTACK_IMPACTS.get(check_type, 'Security Compromise')} | Risk Score: {risk['score']} ({risk['level']})"
+                
+                # 3. Store Evidence
+                if result.artifacts:
+                    for art in result.artifacts:
+                         # Attempt to collect last interaction as evidence
+                         pass # handled by caller/dispatcher usually
             
             # ===== POST-EXECUTION TRACKING =====
             # 1. Record in attack graph for chaining
-            from .core.models import AttackResult, VulnerabilityStatus, Severity
+            from .models import AttackResult, VulnerabilityStatus, Severity
             
             status_map = {
                 "CONFIRMED": VulnerabilityStatus.CONFIRMED,
@@ -695,6 +812,26 @@ class Engine:
             response_time = res_dict.get("response_time", 50)
             self.throttler.record_request(success, response_time, is_timeout)
             
+            # ENRICH RESULT FROM METADATA
+            attack_info = ATTACK_METADATA.get(check_type, {})
+            result.severity = attack_info.get("severity", "LOW")
+            result.remediation = attack_info.get("remediation", "N/A")
+            result.description = ATTACK_IMPACTS.get(check_type, "Security Compromise")
+
+            # ATTEMPT TO FIND VULNERABLE CODE IF CONFIRMED
+            if result.status == "CONFIRMED" and self.source_path:
+                result.vulnerable_code = self._find_vulnerable_code(result.type, s.target)
+
+            result.attack_id = attack_id
+            # GENERATE INDIVIDUAL REPORT
+            report_name = f"report_{check_type}_{attack_id}.html"
+            report_path = os.path.join(self.reports_dir, report_name)
+            self.reporter.generate_individual_report(result, report_path)
+            
+            if self.verbose:
+                status_clr = Fore.GREEN if result.status in ["VULNERABLE", "CONFIRMED"] else Fore.YELLOW if result.status == "SUSPECT" else ""
+                print(f"    -> [REPORT] Generated for {attack_id}: {report_path}")
+
             return result
 
         except Exception as e:
@@ -705,10 +842,17 @@ class Engine:
             self.throttler.record_request(success=False, response_time=500, is_timeout="timeout" in err_str.lower())
 
             # Special Handling for Localhost Crashes/Timeouts
-            if "localhost error" in err_str.lower() or "refused" in err_str.lower() or "unreachable" in err_str.lower() or "timeout" in err_str.lower() or "10061" in err_str:
+            if "connection refused" in err_str.lower() or "target machine actively refused" in err_str.lower() or "10061" in err_str:
+                target_msg = "LOCALHOST ERROR: Connection Refused (Server likely crashed or down)"
+                return CheckResult(s.id, check_type, "ERROR", "HIGH", f"{target_msg}: {err_str}")
+            
+            if "timeout" in err_str.lower():
+                 return CheckResult(s.id, check_type, "SKIPPED", "INFO", f"Request Timed Out (Target slow): {err_str}")
+
+            if "localhost error" in err_str.lower() or "unreachable" in err_str.lower():
                 target_msg = "Target Unresponsive"
                 if "127.0.0.1" in self.base_url or "localhost" in self.base_url:
-                    target_msg = "LOCALHOST ERROR: Dev Server Crashed or Overwhelmed"
+                    target_msg = "LOCALHOST ERROR: Target is struggling"
                 return CheckResult(s.id, check_type, "ERROR", "HIGH", f"{target_msg}: {err_str}")
 
             if "Max retries" in err_str or "429" in err_str or "403" in err_str:
@@ -717,14 +861,77 @@ class Engine:
                     type=check_type,
                     status="BLOCKED",
                     severity=attack_meta["severity"],
-                    details=f"Rate Limited: {err_str}",
-                    confidence="LOW",
+                    details=f"Request blocked or rate-limited: {err_str}",
+                    confidence="HIGH",
                     cwe=attack_meta["cwe"],
                     owasp=attack_meta["owasp"],
                     remediation=attack_meta["remediation"]
                 )
             
-            return CheckResult(s.id, check_type, "ERROR", "LOW", f"Engine Failure: {err_str}")
+            import traceback
+            err_str = f"{str(e)}\n{traceback.format_exc() if self.verbose else ''}"
+            # Ensure we return a valid CheckResult even on error
+            attack_meta = ATTACK_METADATA.get(check_type, {"severity": "INFO", "cwe": "N/A", "owasp": "N/A", "remediation": "N/A"})
+            return CheckResult(s.id, check_type, "ERROR", attack_meta["severity"], f"Engine Failure: {err_str[:200]}")
+
+    def _find_vulnerable_code(self, attack_type: str, target_path: str) -> str:
+        """Heuristically finds the source code responsible for a vulnerability."""
+        if not self.source_path or not os.path.exists(self.source_path):
+            return "Source path not found."
+            
+        # Strategy 1: Map URL to file
+        # Simple mapping: /api/login -> login.js, login.ts, route.ts inside api/login
+        potential_files = []
+        clean_path = target_path.strip("/")
+        
+        # Look for the path in the directory structure
+        for root, _, files in os.walk(self.source_path):
+            if clean_path and clean_path in root.replace("\\", "/"):
+                for f in files:
+                    if f.endswith((".ts", ".js", ".py", ".go", ".php", ".tsx", ".jsx")):
+                        potential_files.append(os.path.join(root, f))
+        
+        if not potential_files:
+             # Strategy 2: Search for the endpoint string in all files
+             import subprocess
+             try:
+                 # Use git grep if available, else standard grep
+                 cmd = ["grep", "-r", "-l", target_path, self.source_path]
+                 out = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode()
+                 potential_files.extend(out.splitlines()[:5])
+             except:
+                 pass
+
+        if potential_files:
+            # Pick the best file and extract context
+            target_file = potential_files[0]
+            try:
+                with open(target_file, "r", encoding="utf-8", errors="ignore") as f:
+                    lines = f.readlines()
+                    # Find a line that looks suspicious based on attack_type
+                    keywords = {
+                        "sql_injection": ["SELECT", "FROM", "WHERE", "query(", "execute("],
+                        "nosql_injection": ["find(", "findOne(", "$ne", "$gt"],
+                        "rce": ["exec(", "spawn(", "system(", "eval("],
+                        "ssti": ["render(", "template", "{{", "{%"],
+                    }
+                    search_keys = keywords.get(attack_type, [target_path])
+                    
+                    target_line = -1
+                    for i, line in enumerate(lines):
+                        if any(k in line for k in search_keys):
+                            target_line = i
+                            break
+                    
+                    if target_line != -1:
+                        start = max(0, target_line - 3)
+                        end = min(len(lines), target_line + 4)
+                        snippet = "".join(lines[start:end])
+                        return f"File: {os.path.relpath(target_file, self.source_path)}\n---\n{snippet}"
+            except:
+                pass
+                
+        return "Automatic code localization failed. Manual audit required."
 
     def _print_result(self, scenario: Scenario, result: CheckResult):
         color = Fore.GREEN
@@ -746,22 +953,29 @@ class Engine:
             color = Fore.WHITE
 
         with Engine.PRINT_LOCK:
-            print(f"    -> {color}[{result.status}] {scenario.id}: {str(result.details)[:80]}...{Style.RESET_ALL}")
+            # Main result line with ID and Status
+            print(f"    -> {color}[{result.status}]{Style.RESET_ALL} [{result.attack_id or 'N/A'}] {scenario.id}: {str(result.details)[:80]}...")
+            
+            # Individual Report Path Line
+            report_name = f"report_{result.type}_{result.attack_id}.html"
+            report_path = os.path.join("artifacts", "reports", report_name)
+            if result.status != "SKIPPED":
+                print(f"       {Fore.CYAN}└── Individual Report: {Style.RESET_ALL}{os.path.abspath(report_path)}")
             
             if result.status == "CONFIRMED":
                 print(f"\n{Fore.RED}" + "="*60)
                 print(f" CONFIRMED VULNERABILITY: {result.type.upper()}")
                 print(f"="*60 + f"{Style.RESET_ALL}")
                 
-                # Confidence
-                conf = result.confidence or "HIGH"
-                print(f" {Fore.RED}{'Confidence:':<20}{Style.RESET_ALL} {conf}")
-                
                 # Impact
-                impact = ATTACK_IMPACTS.get(result.type, "Security Compromise")
-                print(f" {Fore.RED}{'Business Impact:':<20}{Style.RESET_ALL} {impact}")
+                print(f" {Fore.RED}{'Business Impact:':<20}{Style.RESET_ALL} {result.description or 'Security Compromise'}")
+                
+                # Vulnerable Code
+                if result.vulnerable_code:
+                    print(f"\n {Fore.YELLOW}MODERN OFFENSIVE LOCALIZATION (Responsible Code):{Style.RESET_ALL}")
+                    print(f"{Fore.WHITE}{result.vulnerable_code}{Style.RESET_ALL}")
                 
                 # Evidence
-                print(f" {Fore.RED}{'Evidence:':<20}{Style.RESET_ALL} See artifacts/poc_*.py")
+                print(f"\n {Fore.RED}{'Evidence:':<20}{Style.RESET_ALL} See artifacts/poc_*.py")
                 
                 print(f"{Fore.RED}" + "="*60 + f"{Style.RESET_ALL}\n")

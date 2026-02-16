@@ -39,60 +39,47 @@ class BaseAgent:
 
 class BreakerAgent(BaseAgent):
     def __init__(self):
-        prompt = (
-            "You are an expert pentester. Generate a Python PoC script to reproduce the reported vulnerability. "
-            "Output ONLY the code block."
-        )
+        prompt = "Expert pentester. Generate Python PoC for the reported vulnerability. Code ONLY."
         super().__init__("Breaker", prompt)
 
 class ValidatorAgent(BaseAgent):
     def __init__(self):
-        prompt = (
-            "Verify the vulnerability based on the PoC output. Reply ONLY 'CONFIRMED' or 'FAILED'."
-        )
+        prompt = "Verify vulnerability from PoC output. Reply ONLY 'CONFIRMED' or 'FAILED'."
         super().__init__("Validator", prompt)
 
 class AdversarialLoop:
-    def __init__(self, sandbox=None, max_iterations: int = 3):
+    def __init__(self, sandbox=None, max_iterations: int = 2):
         self.breaker = BreakerAgent()
         self.validator = ValidatorAgent()
         self.sandbox = sandbox
         self.max_iterations = max_iterations
 
     def run(self, vulnerability_report: str, source_code: str, target_url: str = "http://localhost:3000") -> dict:
-        """
-        Executes the Breaker -> Validator loop.
-        """
-        print(f"\n[*] Starting Adversarial Validation Loop (Max Iterations: {self.max_iterations})...")
-        print(f"    [Target: {target_url}]")
-        
-        # 1. Breaker generates PoC
-        context = f"Vulnerability: {vulnerability_report}\nCode Snippet: {source_code}\nTarget URL: {target_url}\nRequirement: Print '[!] ATTEMPT SUCCESSFUL' if the vulnerability is reproduced."
-        poc = self.breaker.chat(context)
+        """Executes the Breaker -> Validator loop with aggressive token saving."""
+        # Truncate inputs to save tokens
+        vulnerability_report = vulnerability_report[:500]
+        source_code = source_code[:1000]
 
+        print(f"\n[*] AI Validation Loop (Max Iter: {self.max_iterations})...")
+        
+        context = f"Vulnerability: {vulnerability_report}\nCode: {source_code}\nTarget: {target_url}\nRequirement: Print '[!] ATTEMPT SUCCESSFUL' on success."
+        poc = self.breaker.chat(context)
+        
         if not poc or "import " not in poc:
-            return {"status": "HEURISTIC", "confidence": "LOW", "poc": None, "details": "Breaker could not generate valid PoC code."}
+            return {"status": "HEURISTIC", "confidence": "LOW", "poc": None, "details": "Breaker failed PoC generation."}
             
         if "```python" in poc:
             poc = poc.split("```python")[1].split("```")[0].strip()
         elif "```" in poc:
             poc = poc.split("```")[1].split("```")[0].strip()
 
-        # 2. Execution Phase
         if not self.sandbox or not self.sandbox.is_healthy():
             return {"status": "UNVERIFIED", "confidence": "LOW", "poc": poc, "details": "Sandbox unavailable."}
 
-        print(f"    [>] Executing PoC in Sandbox...")
+        print(f"    [>] Executing PoC...")
         success, output = self.sandbox.execute_poc(poc)
         
-        # 3. Validator analyzes the REAL output
-        val_prompt = (
-            f"Vulnerability Report: {vulnerability_report}\n"
-            f"Expected Target: {target_url}\n"
-            f"PoC Output:\n{output}\n\n"
-            f"Does the PoC output prove the vulnerability exists on {target_url}?\n"
-            f"Reply ONLY 'CONFIRMED' or 'FAILED'."
-        )
+        val_prompt = f"Report: {vulnerability_report}\nOutput:\n{output[:1000]}\nConfirm if successful."
         validation_decision = self.validator.chat(val_prompt).strip().upper()
 
         if "CONFIRMED" in validation_decision:

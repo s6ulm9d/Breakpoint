@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional
 from ..http_client import HttpClient, ResponseWrapper
 from ..scenarios import SimpleScenario
-from .models import AttackResult, Severity, VulnerabilityStatus, AttackArtifact
+from ..models import AttackResult, Severity, VulnerabilityStatus, AttackArtifact
 from .context import TargetContext
 
 class Attack(ABC):

@@ -83,6 +83,7 @@ class HttpClient:
         self.verbose = verbose
         self.silence_404s = False # Used by engine to suppress spam in aggressive modes
         self.global_headers = headers or {}
+        self.oob_server = None # Reference to OOB Server
         self.verify = False # Default to False for security testing
         self.session = requests.Session()
         
@@ -247,10 +248,10 @@ class HttpClient:
 
 
     def _get_bypass_headers(self) -> Dict[str, str]:
-        """Generates evasive and WAF bypass headers."""
+        """Generates evasive and WAF bypass headers with high entropy."""
         ip = f"{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}"
         
-        # Extensive IP Spoofing pool
+        # Comprehensive IP Spoofing and Proxy Bypass pool
         spoof_headers = {
             "X-Forwarded-For": f"{ip}, {random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}.{random.randint(1,254)}",
             "X-Real-IP": ip,
@@ -261,29 +262,38 @@ class HttpClient:
             "X-Remote-IP": ip,
             "X-Remote-Addr": ip,
             "X-Originating-IP": ip,
+            "X-Forwarded-Server": ip,
+            "X-Forwarded-Host": f"{random.randint(1,254)}.{random.randint(1,254)}.local",
+            "X-Host": "127.0.0.1",
             "Forwarded": f"for={ip};proto=https",
             "X-ProxyUser-Ip": ip,
-            "Via": f"1.1 {random.choice(['google', 'bing', 'chrome-compression-proxy'])}",
+            "Via": f"1.1 {random.choice(['google', 'bing', 'chrome-compression-proxy', 'squid', 'varnish'])}",
         }
         
-        # Randomize which ones we send to avoid static fingerprint
-        subset = dict(random.sample(list(spoof_headers.items()), k=random.randint(3, 7)))
+        # Select a random subset to avoid static fingerprinting
+        subset = dict(random.sample(list(spoof_headers.items()), k=random.randint(5, 10)))
         
-        # Core Evasion - LOOK LIKE A REAL BROWSER
+        # Modern Browser Fingerprinting
         subset.update({
             "User-Agent": random.choice(USER_AGENTS),
             "DNT": "1",
-            "Sec-Ch-Ua-Mobile": "?0",
             "Upgrade-Insecure-Requests": "1",
             "Sec-Fetch-Dest": "document",
             "Sec-Fetch-Mode": "navigate",
             "Sec-Fetch-Site": "none",
             "Sec-Fetch-User": "?1",
             "Accept-Encoding": "gzip, deflate, br", 
-            "Cache-Control": "max-age=0",
-            "Sec-Ch-Ua": '"Google Chrome";v="123", "Not:A-Brand";v="8", "Chromium";v="123"',
-            "Sec-Ch-Ua-Platform": '"Windows"',
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "Sec-Ch-Ua": f'"Chromium";v="{random.randint(120, 123)}", "Not:A-Brand";v="8"',
+            "Sec-Ch-Ua-Platform": f'"{random.choice(["Windows", "macOS", "Linux"])}"',
         })
+        
+        # Evasive Header Casing (Optional / Experimental Bypasses)
+        # Some WAFs filter 'X-Forwarded-For' but not 'x-forwarded-for' or 'X-FORWARDED-FOR'
+        # We don't do this for standard headers to avoid breaking some servers, but for bypass ones it's great
+        if random.random() > 0.7:
+            return {k.lower() if random.getrandbits(1) else k.upper() if random.getrandbits(1) else k: v for k, v in subset.items()}
         
         return subset
 
@@ -498,7 +508,11 @@ class HttpClient:
         
         # Localhost crashes are different from remote blocks
         if self._is_localhost:
-            msg = f"LOCALHOST ERROR: Target at {self.base_url} is unresponsive or crashed. Max retries (5) reached. Error: {last_err}"
+            # Distinguish ACTUAL connection refusal vs timeouts
+            if "refused" in str(last_err).lower() or "10061" in str(last_err):
+                 msg = f"LOCALHOST ERROR: Connection Refused. Server is likely down. Error: {last_err}"
+            else:
+                 msg = f"LOCALHOST ERROR: Request Failed (Timeout/Reset). Server is likely struggling or rate-limiting. Error: {last_err}"
         else:
             msg = f"Network Blocked: Max retries (200) exited. Firewall or ISP blocking traffic. Last error: {last_err}"
             if not HttpClient._is_internet_available():

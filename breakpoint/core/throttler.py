@@ -32,12 +32,12 @@ class StabilityMetrics:
     
     @property
     def is_unstable(self) -> bool:
-        """Target is unstable if failure rate > 10% or recent failures."""
-        if self.failure_rate > 0.1: # Tightened from 0.2
+        """Target is unstable if failure rate > 30% or recent failures."""
+        if self.failure_rate > 0.3: 
             return True
         
-        # Recent failure (within last 10 seconds - increased from 5)
-        if self.last_failure_time and (time.time() - self.last_failure_time) < 10:
+        # Recent failure (within last 2 seconds)
+        if self.last_failure_time and (time.time() - self.last_failure_time) < 2:
             return True
         
         return False
@@ -163,11 +163,11 @@ class AdaptiveThrottler:
         if not success:
             self.metrics.failed_requests += 1
             self.metrics.last_failure_time = time.time()
-            # AGGRESSIVE: Jump backoff on any failure
-            self.backoff_multiplier = min(20.0, self.backoff_multiplier * 2.0)
+            # Less aggressive backoff: 1.5x instead of 2.0x, cap at 10.0x
+            self.backoff_multiplier = min(10.0, self.backoff_multiplier * 1.5)
         else:
-            # Gradually recover
-            self.backoff_multiplier = max(1.0, self.backoff_multiplier * 0.95)
+            # Quickly recover
+            self.backoff_multiplier = max(1.0, self.backoff_multiplier * 0.8)
         
         if is_timeout:
             self.metrics.timeout_count += 1

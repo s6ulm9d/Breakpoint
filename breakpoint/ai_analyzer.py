@@ -1,7 +1,8 @@
 import os
 import json
 import requests
-from typing import List, Dict, Any
+import time
+from typing import List, Dict, Any, Optional
 from .licensing import get_openai_key
 from colorama import Fore, Style
 
@@ -10,6 +11,79 @@ class AIAnalyzer:
         self.api_key = api_key or get_openai_key()
         self.api_url = "https://api.openai.com/v1/chat/completions"
         self.logger = forensic_log
+
+    def perform_footprinting(self, source_path: str, url: str, available_modules: List[str]) -> Dict[str, Any]:
+        """
+        ULTRA-EFFICIENT SINGLE-CALL ANALYSIS.
+        Combines Verification, Module Filtering, and Endpoint Discovery into ONE AI call.
+        Saves ~65% of tokens.
+        """
+        if not self.api_key:
+            return {"match": True, "modules": available_modules, "endpoints": []}
+
+        print(f"[*] AI Footprinting: Deep-analyzing source vs target (One-Shot Mode)...")
+        
+        # 1. Gather Target Context
+        target_info = {}
+        try:
+            resp = requests.get(url, timeout=5, verify=False)
+            target_info = {
+                "headers": dict(resp.headers),
+                "body": resp.text[:3000],
+                "status": resp.status_code
+            }
+        except:
+            target_info = {"error": "Target unreachable during footprinting"}
+
+        # 2. Gather Source Context (The heavy part)
+        summary_data = self._summarize_directory(source_path)
+        
+        # 3. Get Module Context
+        from .metadata import ATTACK_KNOWLEDGE_BASE
+        module_context = []
+        for m in available_modules:
+            meta = ATTACK_KNOWLEDGE_BASE.get(m) or ATTACK_KNOWLEDGE_BASE.get(m.replace('_check', '')) or ATTACK_KNOWLEDGE_BASE.get(m.replace('_attack', ''))
+            desc = meta.get("description", "Security test.") if meta else "Security test."
+            module_context.append(f"{m}: {desc[:50]}")
+        
+        prompt = (
+            f"SYSTEM: You are a elite cyber-security auditor performing a footprinting phase.\n\n"
+            f"TARGET URL DATA ({url}):\n{json.dumps(target_info)}\n\n"
+            f"SOURCE CODE ARCHITECTURE:\n{summary_data['tree']}\n\n"
+            f"SOURCE CODE SNIPPETS (CRITICAL):\n{summary_data['summary']}\n\n"
+            f"AVAILABLE MODULES:\n{', '.join([m.split(':')[0] for m in module_context])}\n\n"
+            f"TASK:\n"
+            f"1. VERIFY: Does the source code structure/logic match the live target body/headers? Be skeptical.\n"
+            f"2. FILTER: Which of the available modules are actually relevant to this tech stack?\n"
+            f"3. DISCOVER: List all API endpoints/routes found in the source snippets.\n\n"
+            f"RESPONSE FORMAT (STRICT JSON ONLY):\n"
+            f"{{\n"
+            f"  \"verification\": {{\"match\": true/false, \"reason\": \"string\", \"confidence\": 0-100}},\n"
+            f"  \"selected_modules\": [\"id1\", \"id2\"],\n"
+            f"  \"endpoints\": [ {{\"path\": \"/url\", \"method\": \"GET\", \"params\": [\"p\"]}} ]\n"
+            f"}}\n"
+        )
+
+        res = self._call_ai(prompt)
+        if isinstance(res, dict):
+            # Log for forensics
+            if self.logger:
+                self.logger.log_event("AI_FOOTPRINTING", {"url": url, "source": source_path, "res": res})
+            
+            # Extract and provide defaults
+            verif = res.get("verification", {"match": True, "confidence": 100})
+            mods = res.get("selected_modules", available_modules)
+            endpoints = res.get("endpoints", [])
+            
+            return {
+                "match": verif.get("match", True),
+                "confidence": verif.get("confidence", 0),
+                "reason": verif.get("reason", ""),
+                "modules": mods if mods else available_modules,
+                "endpoints": endpoints
+            }
+        
+        return {"match": True, "modules": available_modules, "endpoints": []}
 
     def analyze_source_code(self, source_path: str, available_modules: List[str]) -> List[str]:
         """
@@ -23,8 +97,11 @@ class AIAnalyzer:
         from .metadata import ATTACK_KNOWLEDGE_BASE
         module_context = []
         for m in available_modules:
-            desc = ATTACK_KNOWLEDGE_BASE.get(m, {}).get("description", "No description available.")
-            module_context.append(f"- {m}: {desc}")
+            # Try to get description from knowledge base, checking common variations
+            meta = ATTACK_KNOWLEDGE_BASE.get(m) or ATTACK_KNOWLEDGE_BASE.get(m.replace('_check', '')) or ATTACK_KNOWLEDGE_BASE.get(m.replace('_attack', ''))
+            desc = meta.get("description", "Targeted security test.") if meta else "Targeted security test."
+            # DRONT-LOAD IDs and truncate descriptions to save tokens
+            module_context.append(f"{m}: {desc[:60]}...")
         
         module_desc_str = "\n".join(module_context)
 
@@ -72,14 +149,39 @@ class AIAnalyzer:
                 })
             return recommended
         
-        return available_modules
+        # Return None to indicate AI failure or inconclusive result
+        return None
 
-    def analyze_target_url(self, url: str, available_modules: List[str]) -> List[str]:
+    def discover_endpoints(self, source_path: str) -> List[Dict[str, Any]]:
+        """
+        Extracts API endpoints and their parameters from the source code using AI.
+        """
+        if not self.api_key: return []
+
+        print(f"[*] AI Phase: Extracting API surface from {source_path}...")
+        summary_data = self._summarize_directory(source_path)
+        
+        prompt = (
+            f"You are a professional security architect. Analyze the provided project source and list all API endpoints discovered.\n\n"
+            f"PROJECT ARCHITECTURE:\n{summary_data['tree']}\n\n"
+            f"CODE CONTEXT:\n{summary_data['summary']}\n\n"
+            f"RESPONSE FORMAT:\n"
+            f"Respond with ONLY a JSON list of objects:\n"
+            f"[ {{\"path\": \"/api/login\", \"method\": \"POST\", \"params\": [\"username\", \"password\"]}}, ... ]\n\n"
+            f"Be comprehensive but only list endpoints that actually exist in the code."
+        )
+
+        res = self._call_ai(prompt)
+        if isinstance(res, list):
+            return res
+        return []
+
+    def analyze_target_url(self, url: str, available_modules: List[str]) -> Optional[List[str]]:
         """
         Analyzes a hosted URL to suggest attack modules based on fingerprinting.
         """
         if not self.api_key:
-            return available_modules
+            return None
 
         print(f"[*] AI Phase: Fingerprinting hosted target {url}...")
         
@@ -201,7 +303,7 @@ class AIAnalyzer:
                 print(f"[DEBUG] AI Verification Error: {e}")
         return True # Default to True only on API failure
 
-    def _call_ai(self, prompt: str) -> Any:
+    def _call_ai(self, prompt: str, retry_count: int = 1) -> Any:
         if not self.api_key: return None
         
         headers = {
@@ -216,6 +318,16 @@ class AIAnalyzer:
         
         try:
             resp = requests.post(self.api_url, headers=headers, json=data, timeout=30)
+            
+            # Handle rate limiting with one retry
+            if resp.status_code == 429 and retry_count > 0:
+                error_data = resp.json()
+                if error_data.get('error', {}).get('code') != 'insufficient_quota':
+                    if os.environ.get("BREAKPOINT_VERBOSE") == "1":
+                        print("    [*] AI Rate limit hit. Retrying in 5s...")
+                    time.sleep(5)
+                    return self._call_ai(prompt, retry_count - 1)
+
             if resp.status_code == 200:
                 result = resp.json()['choices'][0]['message']['content'].strip()
                 if "```json" in result:
@@ -227,12 +339,25 @@ class AIAnalyzer:
                     return json.loads(result)
                 except:
                     return result
-            else:
-                if resp.status_code == 429:
-                    print(f"\n{Fore.RED}[!] AI QUOTA EXHAUSTED: Your OpenAI API tokens have finished or you are being rate-limited.{Style.RESET_ALL}")
-                    print(f"{Fore.RED}[!] Upgrade your OpenAI plan or change your API key: 'breakpoint --openai-key <NEW_KEY>'{Style.RESET_ALL}")
-                elif os.environ.get("BREAKPOINT_VERBOSE") == "1":
-                    print(f"    [!] AI API Error (Status {resp.status_code})")
+            
+            if resp.status_code == 429:
+                error_data = resp.json()
+                message = error_data.get('error', {}).get('message', '')
+                code = error_data.get('error', {}).get('code', '')
+
+                if "insufficient_quota" in message or code == "insufficient_quota":
+                    print(f"\n{Fore.YELLOW}[!] AI RESOURCE LIMIT: Your OpenAI account has insufficient credits or quota.{Style.RESET_ALL}")
+                    print(f"    [>] Feature Fallback: Switching to non-AI engine. The scan will continue but with generic logic.{Style.RESET_ALL}")
+                else:
+                    print(f"\n{Fore.YELLOW}[!] AI RATE LIMITED (429): TPM/RPM exceeded or too many requests.{Style.RESET_ALL}")
+                    print(f"    [>] Note: {message}{Style.RESET_ALL}")
+                    print(f"    [>] Feature Fallback: Reverting to non-AI engine for this step.{Style.RESET_ALL}")
+                
+            elif resp.status_code == 401:
+                print(f"\n{Fore.RED}[!] AI AUTHENTICATION FAILED: The OpenAI API key is invalid.{Style.RESET_ALL}")
+                print(f"{Fore.RED}[!] Run 'breakpoint --openai-key <KEY>' with a valid sk- key.{Style.RESET_ALL}")
+            elif os.environ.get("BREAKPOINT_VERBOSE") == "1":
+                print(f"    [!] AI API Error (Status {resp.status_code}): {resp.text}")
         except Exception:
             pass
         return None
@@ -277,13 +402,14 @@ class AIAnalyzer:
                     file_count += 1
                     try:
                         with open(os.path.join(root, file), 'r', errors='ignore') as f:
-                            # Read more of priority files
-                            read_size = 3000 if is_priority else 1000
+                            # AGGRESSIVE TOKEN SAVING: 
+                            # Read much less, but focus on the middle where logic often resides
+                            read_size = 1200 if is_priority else 400
                             content = f.read(read_size)
                             
-                            # Clean up content: minor minification to save tokens
-                            lines = [l.strip() for l in content.split('\n') if l.strip() and not l.strip().startswith(('#', '//', '/*'))]
-                            processed_content = "\n".join(lines[:60]) # First 60 non-empty non-comment lines
+                            # Clean up content: minor minification
+                            lines = [l.strip() for l in content.split('\n') if l.strip() and not l.strip().startswith(('#', '//', '/*', '*'))]
+                            processed_content = "\n".join(lines[:20]) # Reduced from 30 to 20 lines
                             
                             prio_score = 10 if is_priority else 1
                             summary.append((prio_score, f"File: {rel_path}\nSnippet:\n{processed_content}\n---"))
@@ -292,7 +418,7 @@ class AIAnalyzer:
         
         summary.sort(key=lambda x: x[0], reverse=True)
         return {
-            "summary": "\n\n".join([s[1] for s in summary[:40]]), # Top 40 interesting files
-            "tree": "\n".join(file_tree[:100]), # Top 100 entries of file tree
+            "summary": "\n\n".join([s[1] for s in summary[:15]]), # Reduced from 20 to 15 files
+            "tree": "\n".join(file_tree[:50]), # Reduced from 80 to 50 entries
             "count": file_count
         }

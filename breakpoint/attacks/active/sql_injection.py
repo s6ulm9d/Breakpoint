@@ -1,6 +1,6 @@
 from typing import Dict, Any, List
 from ...core.attack import Attack
-from ...core.models import AttackResult, Severity, VulnerabilityStatus, AttackArtifact
+from ...models import AttackResult, Severity, VulnerabilityStatus, AttackArtifact
 from ...scenarios import SimpleScenario
 from ...http_client import ResponseWrapper
 import time

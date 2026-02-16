@@ -177,26 +177,7 @@
   method: POST
   config: {fields: [email, body], aggressive: true}
 
-- id: clickjacking_check
-  type: clickjacking
-  target: /
-  method: GET
 
-- id: cors_misconfiguration
-  type: cors_origin
-  target: /api/data
-  method: GET
-
-- id: host_header_injection
-  type: host_header
-  target: /
-  method: GET
-
-- id: email_header_injection
-  type: email_injection
-  target: /contact
-  method: POST
-  config: {fields: [email, subject]}
 
 - id: jwt_weak_key_brute
   type: jwt_brute
@@ -368,10 +349,454 @@
   type: rce
   target: /upload
   method: POST
-  config: {fields: [file], aggressive: true} # Implicit via RCE module logic
+  config: {fields: [file], aggressive: true} 
 
 - id: deserialization_rce
   type: insecure_deserialization
   target: /api/data
   method: POST
   config: {fields: [data, state], aggressive: true}
+
+# 11. DEEP WEB MODULES (NEW)
+- id: local_file_inclusion_etc_passwd
+  type: lfi
+  target: /
+  method: GET
+  config: {fields: [view, download, include], aggressive: true}
+
+- id: phar_deserialization
+  type: insecure_deserialization
+  target: /upload
+  method: POST
+  config: {aggressive: true}
+
+- id: graphql_alias_overload
+  type: graphql_batching
+  target: /graphql
+  method: POST
+
+- id: graphql_circular_frag
+  type: graphql_batching
+  target: /graphql
+  method: POST
+
+
+
+- id: nextjs_cache_poison
+  type: cache_deception
+  target: /_next/image
+  method: GET
+
+- id: webpack_sourcemap_leak
+  type: debug_exposure
+  target: /_next/static/chunks/main.js.map
+  method: GET
+
+- id: node_inspect_vulnerability
+  type: debug_exposure
+  target: /
+  method: GET
+  config: {port: 9229}
+
+- id: firebase_db_exposure
+  type: secret_leak
+  target: /.json
+  method: GET
+
+- id: s3_bucket_enumeration
+  type: secret_leak
+  target: /
+  method: GET
+  config: {domain: "s3.amazonaws.com"}
+
+- id: kubernetes_api_probe
+  type: ssrf
+  target: /api/v1/pods
+  method: GET
+
+- id: docker_socket_leak
+  type: rce
+  target: /
+  method: GET
+  config: {path: "/var/run/docker.sock"}
+
+- id: ssh_key_leak
+  type: secret_leak
+  target: /.ssh/id_rsa
+  method: GET
+
+- id: npm_auth_token_leak
+  type: secret_leak
+  target: /.npmrc
+  method: GET
+
+- id: python_pickle_deserialization
+  type: insecure_deserialization
+  target: /api/load
+  method: POST
+
+- id: flask_debug_leak
+  type: debug_exposure
+  target: /_debug_toolbar/
+  method: GET
+
+- id: django_secret_key_leak
+  type: secret_leak
+  target: /settings.py
+  method: GET
+
+- id: mass_assignment_user
+  type: idor
+  target: /api/users
+  method: POST
+  config: {fields: [role, isAdmin, permissions]}
+
+- id: hidden_form_field_manipulation
+  type: idor
+  target: /checkout
+  method: POST
+  config: {fields: [price, amount, discount]}
+
+- id: cve_2024_nodejs_rce
+  type: rce
+  target: /
+  method: GET
+
+- id: log4shell_obfuscated
+  type: cve_log4shell
+  target: /
+  method: GET
+  config: {aggressive: true, obfuscate: true}
+
+- id: ghostscript_rce
+  type: rce
+  target: /api/convert
+  method: POST
+
+- id: imagick_rce
+  type: rce
+  target: /api/resize
+  method: POST
+
+- id: redis_rce_via_ssr
+  type: ssrf
+  target: /api/fetch
+  method: POST
+  config: {payload: "dict://127.0.0.1:6379/SET"}
+
+- id: memcached_leak_via_ssrf
+  type: ssrf
+  target: /api/proxy
+  method: POST
+  config: {payload: "gopher://127.0.0.1:11211/_stats"}
+
+
+
+- id: rsc_payload_deserialization
+  type: rsc_flight_deserialization_abuse
+  target: /
+  method: GET
+
+- id: rsc_action_id_brute
+  type: rsc_server_action_forge
+  target: /
+  method: POST
+
+- id: rsc_suspense_leak
+  type: rsc_hydration_collapse
+  target: /
+  method: GET
+
+- id: ruby_on_rails_rce_cve
+  type: rce
+  target: /
+  method: GET
+
+- id: fast-xml-parser-rce
+  type: xml_bomb
+  target: /api/parse
+  method: POST
+
+- id: java_rmi_deserialization
+  type: insecure_deserialization
+  target: /
+  method: POST
+
+- id: asp_net_viewstate_mac
+  type: insecure_deserialization
+  target: /
+  method: POST
+
+- id: struts2_s2_061
+  type: cve_struts2
+  target: /
+  method: GET
+
+- id: log4shell_jndi_ldap_bypass
+  type: cve_log4shell
+  target: /
+  method: GET
+
+- id: spring_cloud_function_rce
+  type: rce
+  target: /functionRouter
+  method: POST
+
+- id: confluence_rce_cve
+  type: rce
+  target: /
+  method: GET
+
+- id: f5_big_ip_rce
+  type: rce
+  target: /mgmt/tm/util/bash
+  method: POST
+
+- id: citric_adc_rce
+  type: rce
+  target: /
+  method: GET
+
+- id: vmware_vcenter_rce
+  type: rce
+  target: /ui/vcenter/auth/login
+  method: POST
+
+- id: outlook_cve_rce
+  type: rce
+  target: /
+  method: GET
+
+
+
+- id: electron_rce_ipc
+  type: rce
+  target: /
+  method: GET
+
+- id: tauri_rce_bypass
+  type: rce
+  target: /
+  method: GET
+
+- id: te_cl_desync
+  type: request_smuggling
+  target: /
+  method: POST
+  config: {variant: "TE.CL", aggressive: true}
+
+- id: cl_te_desync
+  type: request_smuggling
+  target: /
+  method: POST
+  config: {variant: "CL.TE", aggressive: true}
+
+- id: chunked_encoding_smuggling
+  type: request_smuggling
+  target: /
+  method: POST
+  config: {aggressive: true}
+
+- id: blind_sqli_time_based
+  type: sql_injection
+  target: /api/search
+  method: GET
+  config: {fields: [q, sort, filter], mode: "time", aggressive: true}
+
+- id: union_sqli_data_dump
+  type: sql_injection
+  target: /api/products
+  method: GET
+  config: {fields: [id, category], mode: "union", aggressive: true}
+
+- id: error_sqli_verbose
+  type: sql_injection
+  target: /api/user
+  method: GET
+  config: {fields: [id], mode: "error", aggressive: true}
+
+- id: second_order_sqli_profile
+  type: sql_injection
+  target: /api/profile/update
+  method: POST
+  config: {fields: [nickname, bio], check_url: "/api/profile/view", mode: "second_order", aggressive: true}
+
+- id: ldap_injection_bypass
+  type: ldap_injection
+  target: /api/login
+  method: POST
+  config: {fields: [username], aggressive: true}
+
+- id: xpath_injection_nodes
+  type: xpath_injection
+  target: /api/xml-search
+  method: POST
+  config: {fields: [query], aggressive: true}
+
+- id: zip_slip_traversal
+  type: zip_slip
+  target: /api/upload-extract
+  method: POST
+  config: {aggressive: true}
+
+- id: archive_bomb_io_stress
+  type: archive_bomb
+  target: /api/upload-archive
+  method: POST
+  config: {aggressive: true}
+
+- id: polyglot_file_upload_shell
+  type: file_upload_abuse
+  target: /api/upload-media
+  method: POST
+  config: {aggressive: true, polyglot: true}
+
+- id: content_type_confusion_upload
+  type: file_upload_abuse
+  target: /api/upload
+  method: POST
+  config: {aggressive: true, spoof_content_type: true}
+
+- id: mass_assignment_admin
+  type: idor
+  target: /api/settings
+  method: POST
+  config: {fields: [role, isAdmin, orgId], aggressive: true}
+
+- id: tenant_isolation_bypass_id
+  type: idor
+  target: /api/tenant/data
+  method: GET
+  config: {headers: ["X-Tenant-ID", "X-Org-ID"], aggressive: true}
+
+- id: password_reset_host_poisoning
+  type: password_reset_poisoning
+  target: /api/auth/reset-password
+  method: POST
+  config: {aggressive: true}
+
+- id: oauth_redirect_uri_hijack
+  type: oauth_redirect
+  target: /api/auth/oauth
+  method: GET
+  config: {aggressive: true}
+
+- id: broken_auth_token_replay
+  type: brute_force
+  target: /api/auth/session
+  method: GET
+  config: {mode: "replay", aggressive: true}
+
+- id: api_excessive_data_exposure
+  type: idor
+  target: /api/internal/user/details
+  method: GET
+  config: {aggressive: true}
+
+- id: host_header_cache_poisoning
+  type: host_header
+  target: /
+  method: GET
+  config: {aggressive: true, cache_poison: true}
+
+- id: http_method_override_auth_bypass
+  type: verb_tampering
+  target: /api/admin
+  method: POST
+  headers: {"X-HTTP-Method-Override": "GET"}
+
+- id: cl_cl_desync_probe
+  type: request_smuggling
+  target: /
+  method: POST
+  config: {variant: "CL.CL", aggressive: true}
+
+- id: te_te_desync_probe
+  type: request_smuggling
+  target: /
+  method: POST
+  config: {variant: "TE.TE", aggressive: true}
+
+- id: image_tragick_exploit
+  type: rce
+  target: /api/process-image
+  method: POST
+  config: {mode: "imagick", aggressive: true}
+
+- id: java_jndi_injection
+  type: rce
+  target: /api/lookup
+  method: POST
+  config: {mode: "jndi", aggressive: true}
+
+- id: coupon_code_race_condition
+  type: race_condition
+  target: /api/cart/apply-coupon
+  method: POST
+  config: {coupon: "DISCOUNT100", threads: 50, aggressive: true}
+
+- id: payment_refund_race_condition
+  type: race_condition
+  target: /api/payments/refund
+  method: POST
+  config: {paymentId: "ref_999", threads: 50, aggressive: true}
+
+- id: price_manipulation_v3
+  type: idor
+  target: /api/checkout
+  method: POST
+  config: {fields: [amount, total, price], payloads: ["0.01", "-100", "0"], aggressive: true}
+
+- id: jwt_key_id_traversal
+  type: jwt_weakness
+  target: /api/auth
+  method: GET
+  config: {kid: "../../../../../dev/null", aggressive: true}
+
+- id: jwt_jku_hijack
+  type: jwt_weakness
+  target: /api/auth
+  method: GET
+  config: {jku: "http://evil.audit.com/key.json", aggressive: true}
+
+- id: tenant_isolation_header_inject
+  type: idor
+  target: /api/data
+  method: GET
+  headers: {"X-Original-Tenant-ID": "1"}
+
+- id: cors_preflight_bypass
+  type: cors_origin
+  target: /api/data
+  method: OPTIONS
+  headers: {"Access-Control-Request-Method": "DELETE"}
+
+- id: samesite_none_csrf
+  type: csrf
+  target: /api/user/update
+  method: POST
+  config: {check_samesite: true, aggressive: true}
+
+- id: hsts_missing_check
+  type: header_security
+  target: /
+  method: GET
+  config: {check: "HSTS"}
+
+- id: security_header_scan_v2
+  type: header_security
+  target: /
+  method: GET
+  config: {aggressive: true}
+
+- id: api_workflow_bypass_step
+  type: idor
+  target: /api/workflow/final-step
+  method: POST
+  config: {skip_steps: [1, 2, 3], aggressive: true}
+
+- id: rsc_action_id_collision
+  type: rsc_server_action_forge
+  target: /
+  method: POST
+  config: {mode: "collision", aggressive: true}

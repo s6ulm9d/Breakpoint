@@ -5,7 +5,7 @@ Chains attacks based on findings to simulate real-world exploitation paths.
 from typing import Dict, List, Set, Optional, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
-from .models import AttackResult, VulnerabilityStatus
+from ..models import AttackResult, VulnerabilityStatus
 
 class ExploitPhase(str, Enum):
     """Attack chain phases."""
@@ -176,10 +176,38 @@ class AttackGraph:
         
         # ===== EXFILTRATION PHASE =====
         self.add_node(AttackNode(
-            attack_id="data_exfiltration",
-            phase=ExploitPhase.EXFILTRATION,
-            prerequisites={"idor", "sql_injection"},
+            attack_id="rsc_hydration_collapse",
+            phase=ExploitPhase.INITIAL_ACCESS,
+            enables={"rsc_server_action_forge", "rsc_flight_deserialization_abuse"},
+            priority=8
+        ))
+
+        self.add_node(AttackNode(
+            attack_id="env_exposure",
+            phase=ExploitPhase.RECONNAISSANCE,
+            enables={"secret_leak", "ssrf", "database_access"},
+            priority=9
+        ))
+
+        self.add_node(AttackNode(
+            attack_id="ssrf",
+            phase=ExploitPhase.LATERAL_MOVEMENT,
+            enables={"cloud_metadata_theft", "internal_scan", "redis_rce_via_ssr", "memcached_leak_via_ssrf"},
+            priority=8
+        ))
+
+        self.add_node(AttackNode(
+            attack_id="insecure_deserialization",
+            phase=ExploitPhase.INITIAL_ACCESS,
+            enables={"rce", "full_compromise"},
             priority=10
+        ))
+
+        self.add_node(AttackNode(
+            attack_id="prototype_pollution",
+            phase=ExploitPhase.INITIAL_ACCESS,
+            enables={"rce", "xss"},
+            priority=8
         ))
     
     def add_node(self, node: AttackNode):
@@ -321,7 +349,7 @@ class AttackGraph:
         # Calculate severity score
         severity_map = {"CRITICAL": 10, "HIGH": 7, "MEDIUM": 4, "LOW": 2, "INFO": 1}
         severity_score = sum(
-            severity_map.get(self.findings[nid].severity.value, 0)
+            severity_map.get(self.findings[nid].severity, 0)
             for nid in path_nodes
             if nid in self.findings
         )

