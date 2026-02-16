@@ -155,12 +155,9 @@ class Engine:
         self.context = TargetContext(base_url=self.base_url)
         self.context.oob_provider = self.oob_server  # Inject OOB into context
 
-        # 5. Elite Reporting (Per-Attack)
+        # 5. Elite Reporting (Consolidated)
         from .reporting import EliteHTMLReporter
         self.reporter = EliteHTMLReporter(target_url=self.base_url)
-        self.reports_dir = os.path.join("artifacts", "reports")
-        if not os.path.exists(self.reports_dir):
-             os.makedirs(self.reports_dir)
 
         self._check_connection()
 
@@ -823,15 +820,6 @@ class Engine:
                 result.vulnerable_code = self._find_vulnerable_code(result.type, s.target)
 
             result.attack_id = attack_id
-            # GENERATE INDIVIDUAL REPORT
-            report_name = f"report_{check_type}_{attack_id}.html"
-            report_path = os.path.join(self.reports_dir, report_name)
-            self.reporter.generate_individual_report(result, report_path)
-            
-            if self.verbose:
-                status_clr = Fore.GREEN if result.status in ["VULNERABLE", "CONFIRMED"] else Fore.YELLOW if result.status == "SUSPECT" else ""
-                print(f"    -> [REPORT] Generated for {attack_id}: {report_path}")
-
             return result
 
         except Exception as e:
@@ -955,12 +943,6 @@ class Engine:
         with Engine.PRINT_LOCK:
             # Main result line with ID and Status
             print(f"    -> {color}[{result.status}]{Style.RESET_ALL} [{result.attack_id or 'N/A'}] {scenario.id}: {str(result.details)[:80]}...")
-            
-            # Individual Report Path Line
-            report_name = f"report_{result.type}_{result.attack_id}.html"
-            report_path = os.path.join("artifacts", "reports", report_name)
-            if result.status != "SKIPPED":
-                print(f"       {Fore.CYAN}└── Individual Report: {Style.RESET_ALL}{os.path.abspath(report_path)}")
             
             if result.status == "CONFIRMED":
                 print(f"\n{Fore.RED}" + "="*60)
