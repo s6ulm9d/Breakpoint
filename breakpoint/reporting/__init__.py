@@ -54,6 +54,15 @@ class EliteHTMLReporter:
         self.target_url = target_url
         self.timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    def generate_global_report(self, results: List[CheckResult], output_file: str):
+        """Generates the full executive summary report for all findings."""
+        v_results = [r for r in results if r.status in ["VULNERABLE", "CONFIRMED", "SUSPECT"]]
+        stats = {
+            'critical': len([r for r in v_results if r.severity == "CRITICAL"]),
+            'high': len([r for r in v_results if r.severity == "HIGH"]),
+            'secure': len([r for r in results if r.status == "SECURE"])
+        }
+        
         findings_html = ""
         for r in v_results:
             artifacts_html = ""

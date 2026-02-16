@@ -486,7 +486,9 @@ def main():
         reporter.print_summary(results)
         forensic_meta = {"run_id": integrity["run_id"], "final_hash": integrity["final_hash"], "signature": integrity["signature"], "target": args.base_url, "iteration": iteration}
         if args.json_report: generate_json_report(results, args.json_report)
-        if args.html_report: EliteHTMLReporter(args.base_url).generate(results, args.html_report)
+        if args.html_report:
+            from .reporting import EliteHTMLReporter
+            EliteHTMLReporter(args.base_url).generate_global_report(results, args.html_report)
         if args.sarif_report: SarifReporter(args.sarif_report).generate(results)
         if not args.continuous: break
         if args.interval > 0: import time; time.sleep(args.interval)
