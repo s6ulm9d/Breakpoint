@@ -25,7 +25,7 @@ def start_app(script, port, name):
     proc = subprocess.Popen([sys.executable, script], 
                            stdout=subprocess.PIPE, 
                            stderr=subprocess.PIPE)
-    time.sleep(3)  # Wait for app to start
+    time.sleep(7)  # Wait for app to start
     return proc
 
 def stop_app(proc, name):
@@ -66,7 +66,7 @@ def main():
         try:
             # Test 1: Basic scan
             print_header("Test 1: Basic Scan (Default Settings)")
-            cmd = f".venv\\Scripts\\python -m breakpoint {scenario['url']} --env dev"
+            cmd = f"{sys.executable} -m breakpoint {scenario['url']} --env dev"
             result = run_command(cmd, "Running basic scan")
             
             test_result = {
@@ -85,7 +85,7 @@ def main():
             
             # Test 2: Verbose scan
             print_header("Test 2: Verbose Scan (All Features)")
-            cmd = f".venv\\Scripts\\python -m breakpoint {scenario['url']} --env dev --verbose"
+            cmd = f"{sys.executable} -m breakpoint {scenario['url']} --env dev --verbose"
             result = run_command(cmd, "Running verbose scan")
             
             test_result = {
@@ -104,7 +104,7 @@ def main():
             
             # Test 3: Thorough scan
             print_header("Test 3: Thorough Scan (Maximum Coverage)")
-            cmd = f".venv\\Scripts\\python -m breakpoint {scenario['url']} --env dev --thorough --verbose"
+            cmd = f"{sys.executable} -m breakpoint {scenario['url']} --env dev --thorough --verbose"
             result = run_command(cmd, "Running thorough scan")
             
             test_result = {
