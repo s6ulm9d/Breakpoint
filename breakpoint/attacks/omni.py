@@ -10,6 +10,7 @@ import random
 import socket
 import hashlib
 import ssl
+import uuid
 from ..http_client import HttpClient, ResponseWrapper
 import zipfile
 import io

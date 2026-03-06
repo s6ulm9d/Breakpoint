@@ -347,6 +347,11 @@ class Engine:
                                     # Attempt to 'break' (validate) it fully
                                     snippet = result.vulnerable_code if hasattr(result, 'vulnerable_code') and result.vulnerable_code else "Source unavailable"
                                     
+                                    # VISIBILITY: Show the user what snippet we selected for AI
+                                    print(f"    {Fore.CYAN}[AI_CODE_SELECTION] Passing relevant context to agent:{Style.RESET_ALL}")
+                                    snippet_preview = snippet[:200] + "..." if len(snippet) > 200 else snippet
+                                    print(f"    {Fore.WHITE}--- SNIPPET START ---\n    {snippet_preview.replace('\n', '\n    ')}\n    --- SNIPPET END ---{Style.RESET_ALL}")
+
                                     # New Agent Logic returns dict
                                     validation_result = self.adv_loop.run(
                                         vulnerability_report=str(result.details), 
@@ -829,7 +834,23 @@ class Engine:
 
             # ATTEMPT TO FIND VULNERABLE CODE IF CONFIRMED
             if result.status == "CONFIRMED" and self.source_path:
-                result.vulnerable_code = self._find_vulnerable_code(result.type, s.target)
+                # 1. Try to find a matching static analysis pattern
+                static_match = None
+                if self.static_findings:
+                    for f in self.static_findings:
+                        # Map internal sink names to public vulnerability types
+                        sink = f.get("sink", "")
+                        if sink and (sink.lower() in result.type.lower() or result.type.lower() in sink.lower()):
+                            static_match = f
+                            break
+                
+                if static_match:
+                    # Construct a high-fidelity localization from SAST data
+                    rel_path = os.path.relpath(static_match.get("file", ""), self.source_path) if os.path.isabs(static_match.get("file", "")) else static_match.get("file", "unknown")
+                    result.vulnerable_code = f"File: {rel_path}\nLine: {static_match.get('line', 'N/A')}\n---\n{static_match.get('evidence', 'No code evidence')}"
+                else:
+                    # 2. Fall back to heuristic mapping
+                    result.vulnerable_code = self._find_vulnerable_code(result.type, s.target)
 
             result.attack_id = attack_id
             return result

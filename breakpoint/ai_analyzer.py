@@ -3,13 +3,14 @@ import json
 import requests
 import time
 from typing import List, Dict, Any, Optional
+from openai import OpenAI, AuthenticationError, RateLimitError, APIConnectionError
 from .licensing import get_openai_key
 from colorama import Fore, Style
 
 class AIAnalyzer:
     def __init__(self, api_key: str = None, forensic_log=None):
         self.api_key = api_key or get_openai_key()
-        self.api_url = "https://api.openai.com/v1/chat/completions"
+        self.client = OpenAI(api_key=self.api_key) if self.api_key else None
         self.logger = forensic_log
 
     def perform_footprinting(self, source_path: str, url: str, available_modules: List[str]) -> Dict[str, Any]:
@@ -18,7 +19,7 @@ class AIAnalyzer:
         Combines Verification, Module Filtering, and Endpoint Discovery into ONE AI call.
         Saves ~65% of tokens.
         """
-        if not self.api_key:
+        if not self.client:
             return {"match": True, "modules": available_modules, "endpoints": []}
 
         print(f"[*] AI Footprinting: Deep-analyzing source vs target (One-Shot Mode)...")
@@ -90,7 +91,7 @@ class AIAnalyzer:
         Analyzes source code files to suggest applicable attack modules.
         Provides module descriptions to the AI for better decision making.
         """
-        if not self.api_key:
+        if not self.client:
             print("[!] AI Analysis skipped: No OpenAI API key configured.")
             return available_modules
 
@@ -156,7 +157,7 @@ class AIAnalyzer:
         """
         Extracts API endpoints and their parameters from the source code using AI.
         """
-        if not self.api_key: return []
+        if not self.client: return []
 
         print(f"[*] AI Phase: Extracting API surface from {source_path}...")
         summary_data = self._summarize_directory(source_path)
@@ -180,7 +181,7 @@ class AIAnalyzer:
         """
         Analyzes a hosted URL to suggest attack modules based on fingerprinting.
         """
-        if not self.api_key:
+        if not self.client:
             return None
 
         print(f"[*] AI Phase: Fingerprinting hosted target {url}...")
@@ -236,7 +237,7 @@ class AIAnalyzer:
         Verifies if the source code provided matches the tech stack of the target URL.
         Prevents faking results with mismatched source.
         """
-        if not self.api_key: return True
+        if not self.client: return True
 
         print(f"[*] AI Phase: Strict Cross-Verification (Source vs Target {url})...")
         
@@ -303,64 +304,90 @@ class AIAnalyzer:
                 print(f"[DEBUG] AI Verification Error: {e}")
         return True # Default to True only on API failure
 
+    def test_ai_connectivity(self) -> bool:
+        """
+        Diagnostic test for OpenAI connectivity.
+        """
+        if not self.client:
+            print(f"{Fore.RED}[!] AI Connection Test Failed: No API key loaded.{Style.RESET_ALL}")
+            return False
+            
+        print(f"[*] Testing AI connectivity (model: gpt-4o-mini)...")
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "Respond with exactly 'PONG'"}],
+                temperature=0,
+                max_tokens=5
+            )
+            content = response.choices[0].message.content.strip()
+            if "PONG" in content:
+                print(f"{Fore.GREEN}[+] AI ENGINE ONLINE: Connectivity verified.{Style.RESET_ALL}")
+                return True
+            else:
+                print(f"{Fore.YELLOW}[!] AI ENGINE UNSTABLE: Unexpected response: {content}{Style.RESET_ALL}")
+                return False
+        except AuthenticationError:
+             print(f"{Fore.RED}[!] AI AUTHENTICATION FAILED: The provided API key is invalid.{Style.RESET_ALL}")
+             return False
+        except RateLimitError as e:
+            if "insufficient_quota" in str(e):
+                 print(f"{Fore.RED}[!] AI QUOTA EXHAUSTED: Your OpenAI account has run out of credits.{Style.RESET_ALL}")
+            else:
+                 print(f"{Fore.RED}[!] AI RATE LIMIT HIT: TPM/RPM limit exceeded.{Style.RESET_ALL}")
+            return False
+        except APIConnectionError:
+            print(f"{Fore.RED}[!] AI CONNECTION ERROR: Failed to reach OpenAI API (Network issue).{Style.RESET_ALL}")
+            return False
+        except Exception as e:
+            print(f"{Fore.RED}[!] AI UNKNOWN ERROR: {e}{Style.RESET_ALL}")
+            return False
+
     def _call_ai(self, prompt: str, retry_count: int = 1) -> Any:
-        if not self.api_key: return None
-        
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-        data = {
-            "model": "gpt-4o-mini",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0
-        }
+        if not self.client: return None
         
         try:
-            resp = requests.post(self.api_url, headers=headers, json=data, timeout=30)
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,
+            )
             
-            # Handle rate limiting with one retry
-            if resp.status_code == 429 and retry_count > 0:
-                error_data = resp.json()
-                if error_data.get('error', {}).get('code') != 'insufficient_quota':
+            result = response.choices[0].message.content.strip()
+            if "```json" in result:
+                result = result.split("```json")[1].split("```")[0].strip()
+            elif "```" in result:
+                result = result.split("```")[1].split("```")[0].strip()
+            
+            try:
+                return json.loads(result)
+            except:
+                return result
+                
+        except AuthenticationError:
+            print(f"\n{Fore.RED}[!] AI AUTHENTICATION FAILED: The OpenAI API key is invalid.{Style.RESET_ALL}")
+            print(f"{Fore.RED}[!] Run 'breakpoint --openai-key <KEY>' with a valid sk- key.{Style.RESET_ALL}")
+            return None
+        except RateLimitError as e:
+            if "insufficient_quota" in str(e):
+                print(f"\n{Fore.YELLOW}[!] AI RESOURCE LIMIT: Your OpenAI account has insufficient credits or quota.{Style.RESET_ALL}")
+                print(f"    [>] Feature Fallback: Switching to non-AI engine. The scan will continue but with generic logic.{Style.RESET_ALL}")
+            else:
+                if retry_count > 0:
                     if os.environ.get("BREAKPOINT_VERBOSE") == "1":
                         print("    [*] AI Rate limit hit. Retrying in 5s...")
                     time.sleep(5)
                     return self._call_ai(prompt, retry_count - 1)
-
-            if resp.status_code == 200:
-                result = resp.json()['choices'][0]['message']['content'].strip()
-                if "```json" in result:
-                    result = result.split("```json")[1].split("```")[0].strip()
-                elif "```" in result:
-                    result = result.split("```")[1].split("```")[0].strip()
-                
-                try:
-                    return json.loads(result)
-                except:
-                    return result
-            
-            if resp.status_code == 429:
-                error_data = resp.json()
-                message = error_data.get('error', {}).get('message', '')
-                code = error_data.get('error', {}).get('code', '')
-
-                if "insufficient_quota" in message or code == "insufficient_quota":
-                    print(f"\n{Fore.YELLOW}[!] AI RESOURCE LIMIT: Your OpenAI account has insufficient credits or quota.{Style.RESET_ALL}")
-                    print(f"    [>] Feature Fallback: Switching to non-AI engine. The scan will continue but with generic logic.{Style.RESET_ALL}")
-                else:
-                    print(f"\n{Fore.YELLOW}[!] AI RATE LIMITED (429): TPM/RPM exceeded or too many requests.{Style.RESET_ALL}")
-                    print(f"    [>] Note: {message}{Style.RESET_ALL}")
-                    print(f"    [>] Feature Fallback: Reverting to non-AI engine for this step.{Style.RESET_ALL}")
-                
-            elif resp.status_code == 401:
-                print(f"\n{Fore.RED}[!] AI AUTHENTICATION FAILED: The OpenAI API key is invalid.{Style.RESET_ALL}")
-                print(f"{Fore.RED}[!] Run 'breakpoint --openai-key <KEY>' with a valid sk- key.{Style.RESET_ALL}")
-            elif os.environ.get("BREAKPOINT_VERBOSE") == "1":
-                print(f"    [!] AI API Error (Status {resp.status_code}): {resp.text}")
-        except Exception:
-            pass
-        return None
+                print(f"\n{Fore.YELLOW}[!] AI RATE LIMITED (429): TPM/RPM exceeded.{Style.RESET_ALL}")
+                print(f"    [>] Feature Fallback: Reverting to non-AI engine for this step.{Style.RESET_ALL}")
+            return None
+        except APIConnectionError:
+            print(f"\n{Fore.RED}[!] AI CONNECTION ERROR: Failed to reach OpenAI API.{Style.RESET_ALL}")
+            return None
+        except Exception as e:
+            if os.environ.get("BREAKPOINT_VERBOSE") == "1":
+                print(f"    [!] AI Unknown Error: {e}")
+            return None
 
     def _summarize_directory(self, path: str) -> Dict[str, Any]:
         """

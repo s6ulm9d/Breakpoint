@@ -29,15 +29,16 @@ def get_openai_key():
     """Returns the OpenAI key from environment or local storage."""
     # Priority 1: Environment Variable
     env_key = os.environ.get("OPENAI_API_KEY")
-    if env_key:
-        return env_key
+    if env_key and env_key.strip():
+        return env_key.strip()
     
     # Priority 2: Persistent Storage
     key_file = os.path.join(_get_cache_dir(), "openai.key")
     if os.path.exists(key_file):
         try:
             with open(key_file, 'r') as f:
-                return f.read().strip()
+                key = f.read().strip()
+                if key: return key
         except:
             pass
     return None
