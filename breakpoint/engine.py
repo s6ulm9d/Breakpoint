@@ -159,6 +159,11 @@ class Engine:
         from .reporting import EliteHTMLReporter
         self.reporter = EliteHTMLReporter(target_url=self.base_url)
 
+        # 6. Replay & Session Management
+        from .replay import ReplayManager
+        self.replay_manager = ReplayManager()
+        self.replay_manager.set_target(self.base_url)
+
         self._check_connection()
 
     def _check_connection(self):
@@ -540,6 +545,11 @@ class Engine:
             
             # Throttling Report shown in finally or CLI
             pass
+            
+        # SAVE SESSION FOR REPLAY
+        session_file = self.replay_manager.save_session()
+        if session_file and self.verbose:
+            print(f"[*] Session recorded to: {session_file}")
 
         return results
 
@@ -593,6 +603,9 @@ class Engine:
             from .attacks import omni
             
             client = HttpClient(self.base_url, verbose=self.verbose, headers=self.headers)
+            client.replay_manager = self.replay_manager
+            client.current_module = check_type
+            
             if hasattr(self, 'oob_enabled') and self.oob_enabled and self.oob_server:
                 client.oob_server = self.oob_server
             

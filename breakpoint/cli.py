@@ -168,6 +168,7 @@ def main():
     parser.add_argument("--license-key", help="Specify subscription key")
     parser.add_argument("--openai-key", help="Set or update OpenAI API key for AI-driven project analysis")
     parser.add_argument("--ai-test", action="store_true", help="Run a diagnostic test of the AI subsystem")
+    parser.add_argument("--replay", help="Replay a previous attack session (e.g. 'last' or <session_id>)")
     parser.add_argument("--headers", action="append", help="Global headers (Key:Value)")
     
     args, unknown = parser.parse_known_args()
@@ -223,6 +224,17 @@ def main():
         success = analyzer.test_ai_connectivity()
         sys.exit(0 if success else 1)
 
+    # Handle Replay Mode
+    if args.replay:
+        from .replay import ReplayManager
+        rm = ReplayManager()
+        session_data = rm.load_session(args.replay)
+        if session_data:
+            rm.run_replay(session_data, verbose=args.verbose)
+            sys.exit(0)
+        else:
+            sys.exit(1)
+
     # 0. MANDATORY LOGIN CHECK
     if args.login:
         if login_flow():
@@ -247,7 +259,7 @@ def main():
         print(f"[!] Error: Unknown arguments detected: {unknown}")
         sys.exit(1)
 
-    if not args.base_url:
+    if not args.base_url and not args.replay:
         parser.print_help()
         sys.exit(1)
 

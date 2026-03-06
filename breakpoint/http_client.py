@@ -117,6 +117,10 @@ class HttpClient:
         self.scope_domain = urllib.parse.urlparse(base_url).netloc
         self.whitelist = {self.scope_domain, "127.0.0.1", "localhost"}
 
+        # Replay/Recording state
+        self.replay_manager = None
+        self.current_module = "unknown"
+
     def _is_in_scope(self, url: str) -> bool:
         """Verifies if the target URL is within the authorized scan scope."""
         parsed = urllib.parse.urlparse(url)
@@ -482,6 +486,18 @@ class HttpClient:
 
                 # Limit response body in dump to avoid excessively large logs
                 res_dump = f"HTTP/1.1 {resp.status_code} {resp.reason}\n" + "\n".join(f"{k}: {v}" for k, v in resp.headers.items()) + f"\n\n{resp.text[:500]}{'...' if len(resp.text) > 500 else ''}"
+
+                # RECORD ATTACK IF REPLAY MANAGER IS SET
+                if self.replay_manager and not is_canary:
+                    self.replay_manager.record_attack(
+                        module=self.current_module,
+                        endpoint=path,
+                        method=method,
+                        params=params,
+                        json_body=json_body,
+                        form_body=form_body,
+                        payload=json.dumps(json_body) if json_body else str(form_body) if form_body else None
+                    )
 
                 return ResponseWrapper(
                     status_code=resp.status_code, 
