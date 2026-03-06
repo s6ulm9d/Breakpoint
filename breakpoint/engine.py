@@ -547,11 +547,62 @@ class Engine:
             pass
             
         # SAVE SESSION FOR REPLAY
-        session_file = self.replay_manager.save_session()
+        session_file = self.replay_manager.save_session(results=results)
         if session_file and self.verbose:
             print(f"[*] Session recorded to: {session_file}")
 
         return results
+
+    def replay_session(self, session_data: Dict[str, Any]) -> List[CheckResult]:
+        """Replays a previous session with full output parity."""
+        target = session_data.get("target")
+        attacks = session_data.get("attacks", [])
+        recorded_results = session_data.get("results", [])
+        
+        print(f"\n{Fore.CYAN}[REPLAY MODE] Replaying previous attack session{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}[REPLAY MODE] Target loaded from session: {target}{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}[REPLAY MODE] Executing {len(attacks)} recorded attacks...{Style.RESET_ALL}")
+        
+        from .http_client import HttpClient
+        # Use our own instance's settings if available
+        client = HttpClient(target, verbose=self.verbose, headers=self.headers)
+        
+        # 1. Run attacks for visualization
+        for i, attack in enumerate(attacks):
+            module = attack.get("module", "unknown")
+            endpoint = attack.get("endpoint", "/")
+            method = attack.get("method", "GET")
+            params = attack.get("params")
+            json_body = attack.get("json_body")
+            form_body = attack.get("form_body")
+            
+            print(f"    {Fore.WHITE}[{i+1}/{len(attacks)}] Replaying {module} on {endpoint}...{Style.RESET_ALL}")
+            
+            try:
+                client.send(method, endpoint, params=params, json_body=json_body, form_body=form_body)
+            except Exception as e:
+                print(f"    {Fore.RED}[!] Replay failed for attack {i+1}: {e}{Style.RESET_ALL}")
+
+        # 2. Reconstruct and report results
+        print(f"\n[*] Processing recorded findings...")
+        from .models import CheckResult, Scenario
+        final_results = []
+        for r_dict in recorded_results:
+            try:
+                # Reconstruct CheckResult
+                res = CheckResult(**r_dict)
+                final_results.append(res)
+                
+                # Print finding banner if it was significant
+                if res.status in ["VULNERABLE", "CONFIRMED", "SUSPECT"]:
+                    mock_s = Scenario(id=res.id, type=res.type, target="Replayed Endpoint")
+                    self._print_result(mock_s, res)
+            except Exception as e:
+                if self.verbose:
+                    print(f"    [!] Error reconstructing result: {e}")
+
+        print(f"\n{Fore.GREEN}[+] Replay session completed.{Style.RESET_ALL}")
+        return final_results
 
     def _is_duplicate(self, result: CheckResult) -> bool:
         """Calculate unique hash for finding deduplication."""

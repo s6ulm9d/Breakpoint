@@ -111,6 +111,8 @@ def main():
     init(autoreset=True)
     signal.signal(signal.SIGINT, signal_handler)
     
+    logger = ForensicLogger()
+    
     # 1. ROBUST SHORTHAND & COMMAND HANDLING
     if len(sys.argv) > 1:
         skip_transformation = ["update", "--update", "--login", "--license-key", "--openai-key", "--version", "-v"]
@@ -224,16 +226,6 @@ def main():
         success = analyzer.test_ai_connectivity()
         sys.exit(0 if success else 1)
 
-    # Handle Replay Mode
-    if args.replay:
-        from .replay import ReplayManager
-        rm = ReplayManager()
-        session_data = rm.load_session(args.replay)
-        if session_data:
-            rm.run_replay(session_data, verbose=args.verbose)
-            sys.exit(0)
-        else:
-            sys.exit(1)
 
     # 0. MANDATORY LOGIN CHECK
     if args.login:
@@ -263,7 +255,7 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    if not args.env:
+    if not args.env and not args.replay:
         print(f"\n{Fore.RED}[!] Error: --env <dev|staging|production> is mandatory for scans.{Style.RESET_ALL}")
         sys.exit(1)
 
@@ -285,7 +277,7 @@ def main():
 
     # Defaults
     if args.concurrency is None:
-        if any(x in args.base_url.lower() for x in ["localhost", "127.0.0.1", "0.0.0.0", "::1"]):
+        if args.base_url and any(x in args.base_url.lower() for x in ["localhost", "127.0.0.1", "0.0.0.0", "::1"]):
             args.concurrency = 15 if args.aggressive else 8
             if args.verbose:
                 print(f"[*] Dev/Localhost detected: Capping concurrency to {args.concurrency} to ensure stability.")
@@ -336,7 +328,36 @@ def main():
          if args.source:
              print(f" {Fore.GREEN}[+] AI Filtering: Enabled{Style.RESET_ALL}")
 
-    logger = ForensicLogger()
+    # Integrated Replay Mode Handling
+    if args.replay:
+        from .replay import ReplayManager
+        rm = ReplayManager()
+        session_data = rm.load_session(args.replay)
+        if not session_data:
+            sys.exit(1)
+            
+        target = session_data.get("target")
+        print(f" {Fore.CYAN}[*] Forensic Audit initialized (REPLAY MODE).{Style.RESET_ALL}")
+        
+        engine = Engine(
+            base_url=target, forensic_log=logger, 
+            verbose=args.verbose, headers=global_headers,
+            thorough=args.thorough, force_aggressive=args.force
+        )
+        results = engine.replay_session(session_data)
+        
+        reporter = ConsoleReporter()
+        reporter.print_summary(results)
+        
+        # Reports
+        if args.json_report: generate_json_report(results, args.json_report)
+        if args.html_report:
+            from .reporting import EliteHTMLReporter
+            EliteHTMLReporter(target).generate_global_report(results, args.html_report)
+        if args.sarif_report: SarifReporter(args.sarif_report).generate(results)
+        
+        sys.exit(0)
+
     print(f" {Fore.CYAN}[*] Forensic Audit initialized.{Style.RESET_ALL}")
     print("-" * 60)
     

@@ -16,12 +16,13 @@ class ReplayManager:
     def set_target(self, url: str):
         self.target_url = url
 
-    def record_attack(self, module: str, endpoint: str, method: str, params: Optional[Dict] = None, json_body: Optional[Dict] = None, form_body: Any = None, payload: Optional[str] = None):
+    def record_attack(self, module: str, endpoint: str, method: str, attack_type: str = "unknown", params: Optional[Dict] = None, json_body: Optional[Dict] = None, form_body: Any = None, payload: Optional[str] = None):
         """Records a single attack step."""
         entry = {
             "module": module,
             "endpoint": endpoint,
             "method": method,
+            "attack_type": attack_type,
             "params": params,
             "json_body": json_body,
             "form_body": form_body,
@@ -30,11 +31,12 @@ class ReplayManager:
         }
         self.current_session.append(entry)
 
-    def save_session(self):
+    def save_session(self, results: Optional[List[Any]] = None):
         """Saves the current session to a timestamped JSON file."""
         if not self.current_session:
             return None
 
+        from dataclasses import asdict
         timestamp = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
         filename = f"{timestamp}.json"
         filepath = os.path.join(self.session_dir, filename)
@@ -42,7 +44,8 @@ class ReplayManager:
         data = {
             "target": self.target_url,
             "timestamp": datetime.datetime.now().isoformat(),
-            "attacks": self.current_session
+            "attacks": self.current_session,
+            "results": [asdict(r) if hasattr(r, '__dataclass_fields__') else r for r in (results or [])]
         }
         
         try:
@@ -80,38 +83,6 @@ class ReplayManager:
             print(f"{Fore.RED}[REPLAY ERROR] Failed to load session: {e}{Style.RESET_ALL}")
             return None
 
-    def run_replay(self, session_data: Dict[str, Any], verbose: bool = False):
-        """Executes the replayed attacks."""
-        target = session_data.get("target")
-        attacks = session_data.get("attacks", [])
-        
-        print(f"{Fore.CYAN}[REPLAY MODE] Replaying previous attack session{Style.RESET_ALL}")
-        print(f"{Fore.CYAN}[REPLAY MODE] Target loaded from session: {target}{Style.RESET_ALL}")
-        print(f"{Fore.CYAN}[REPLAY MODE] Executing {len(attacks)} recorded attacks...{Style.RESET_ALL}")
-        
-        from .http_client import HttpClient
-        client = HttpClient(target, verbose=verbose)
-        
-        for i, attack in enumerate(attacks):
-            module = attack.get("module", "unknown")
-            endpoint = attack.get("endpoint", "/")
-            method = attack.get("method", "GET")
-            params = attack.get("params")
-            json_body = attack.get("json_body")
-            form_body = attack.get("form_body")
-            
-            print(f"    {Fore.WHITE}[{i+1}/{len(attacks)}] Replaying {module} on {endpoint}...{Style.RESET_ALL}")
-            
-            try:
-                # Direct call to HttpClient.send to bypass discovery/AI logic
-                client.send(
-                    method=method,
-                    path=endpoint,
-                    params=params,
-                    json_body=json_body,
-                    form_body=form_body
-                )
-            except Exception as e:
-                print(f"    {Fore.RED}[!] Replay failed for attack {i+1}: {e}{Style.RESET_ALL}")
-        
-        print(f"\n{Fore.GREEN}[+] Replay session completed.{Style.RESET_ALL}")
+        except Exception as e:
+            print(f"{Fore.RED}[REPLAY ERROR] Failed to load session: {e}{Style.RESET_ALL}")
+            return None

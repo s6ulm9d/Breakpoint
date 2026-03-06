@@ -493,6 +493,7 @@ class HttpClient:
                         module=self.current_module,
                         endpoint=path,
                         method=method,
+                        attack_type=self.current_module,
                         params=params,
                         json_body=json_body,
                         form_body=form_body,
