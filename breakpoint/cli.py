@@ -168,7 +168,7 @@ def main():
     parser.add_argument("--license-key", help="Specify subscription key")
     parser.add_argument("--openai-key", help="Set or update OpenAI API key for AI-driven project analysis")
     parser.add_argument("--ai-test", action="store_true", help="Run a diagnostic test of the AI subsystem")
-    parser.add_argument("--replay", help="Replay a previous attack session (e.g. 'last' or <session_id>)")
+    parser.add_argument("--replay", nargs="?", const="last", help="Replay a previous attack session (defaults to 'last')")
     parser.add_argument("--headers", action="append", help="Global headers (Key:Value)")
     
     args, unknown = parser.parse_known_args()
