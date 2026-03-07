@@ -1,4 +1,4 @@
-from .reporting import EliteHTMLReporter
+from .reporting import EliteHTMLReporter, StructuredReportGenerator
 from .sarif_reporting import SarifReporter
 from .engine import Engine
 from .scenarios import load_scenarios, SimpleScenario, FlowScenario
@@ -344,16 +344,22 @@ def main():
             verbose=args.verbose, headers=global_headers,
             thorough=args.thorough, force_aggressive=args.force
         )
+        engine.is_replay = True
+        engine.replay_session_id = args.replay
         results = engine.replay_session(session_data)
         
         reporter = ConsoleReporter()
-        reporter.print_summary(results)
+        reporter.print_report_links(engine, results)
         
         # Reports
-        if args.json_report: generate_json_report(results, args.json_report)
+        if args.json_report:
+            engine.json_report_path = args.json_report
+            generate_json_report(results, args.json_report)
         if args.html_report:
-            from .reporting import EliteHTMLReporter
-            EliteHTMLReporter(target).generate_global_report(results, args.html_report)
+            engine.html_report_path = args.html_report
+            # The HTML report logic remains in cli.py or triggered here
+            from .reporting import StructuredReportGenerator
+            StructuredReportGenerator(engine).generate(results, args.html_report)
         if args.sarif_report: SarifReporter(args.sarif_report).generate(results)
         
         sys.exit(0)
@@ -580,13 +586,17 @@ def main():
             logger.log_event("CRASH", {"error": str(e)})
             sys.exit(1)
         integrity = logger.sign_run()
+        
+        if args.json_report: engine.json_report_path = args.json_report
+        if args.html_report: engine.html_report_path = args.html_report
+
         reporter = ConsoleReporter()
-        reporter.print_summary(results)
+        reporter.print_report_links(engine, results)
         forensic_meta = {"run_id": integrity["run_id"], "final_hash": integrity["final_hash"], "signature": integrity["signature"], "target": args.base_url, "iteration": iteration}
         if args.json_report: generate_json_report(results, args.json_report)
         if args.html_report:
-            from .reporting import EliteHTMLReporter
-            EliteHTMLReporter(args.base_url).generate_global_report(results, args.html_report)
+            from .reporting import StructuredReportGenerator
+            StructuredReportGenerator(engine).generate(results, args.html_report)
         if args.sarif_report: SarifReporter(args.sarif_report).generate(results)
         if not args.continuous: break
         if args.interval > 0: import time; time.sleep(args.interval)

@@ -4,6 +4,8 @@ import datetime
 from typing import List
 from colorama import Fore, Style, init
 from ..models import CheckResult
+from .generator import StructuredReportGenerator
+from .professional import ProfessionalReportBuilder
 
 init(autoreset=True)
 
@@ -43,6 +45,18 @@ class ConsoleReporter:
             for f in suspect:
                  print(f" - {Fore.YELLOW}[{f.type.upper()}]{Style.RESET_ALL} {f.description}")
         print("="*60 + "\n")
+
+    def print_professional_report(self, engine, results):
+        """Generates and prints the state-of-the-art professional audit report."""
+        builder = ProfessionalReportBuilder(engine, results)
+        report_text = builder.build_report()
+        print(report_text)
+
+    def print_report_links(self, engine, results):
+        """Generates and prints a condensed report link summary."""
+        builder = ProfessionalReportBuilder(engine, results)
+        summary_text = builder.build_link_summary()
+        print(summary_text)
 
 def generate_json_report(results, filename):
     data = [{"id": r.id, "type": r.type, "status": r.status, "severity": r.severity} for r in results]

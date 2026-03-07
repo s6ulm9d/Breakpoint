@@ -1,0 +1,380 @@
+[
+  {
+    "id": "lfi_path_traversal",
+    "type": "lfi",
+    "status": "ERROR",
+    "severity": "HIGH"
+  },
+  {
+    "id": "exotic_injection_template",
+    "type": "ssti",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "file_inclusion_polyglot",
+    "type": "lfi",
+    "status": "ERROR",
+    "severity": "HIGH"
+  },
+  {
+    "id": "security_headers",
+    "type": "header_security",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "xss_reflected",
+    "type": "xss",
+    "status": "ERROR",
+    "severity": "MEDIUM"
+  },
+  {
+    "id": "struts2_rce",
+    "type": "cve_struts2",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "slowloris_dos",
+    "type": "dos_slowloris",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "sqli_blind_time",
+    "type": "sql_injection",
+    "status": "ERROR",
+    "severity": "CRITICAL"
+  },
+  {
+    "id": "xxe_external_entity",
+    "type": "xxe_exfil",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "cors_misconfiguration",
+    "type": "cors_origin",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "brute_force_basic",
+    "type": "brute_force",
+    "status": "ERROR",
+    "severity": "MEDIUM"
+  },
+  {
+    "id": "jwt_none_alg",
+    "type": "jwt_weakness",
+    "status": "ERROR",
+    "severity": "HIGH"
+  },
+  {
+    "id": "rsc_framework_ssrf",
+    "type": "rsc_ssr_ssrf",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "secret_leak_scan",
+    "type": "secret_leak",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "otp_reuse_check",
+    "type": "otp_reuse",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "prototype_pollution",
+    "type": "prototype_pollution",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "ssti_template_injection",
+    "type": "ssti",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "advanced_dos_checks",
+    "type": "advanced_dos",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "rce_shell_shock",
+    "type": "rce",
+    "status": "ERROR",
+    "severity": "CRITICAL"
+  },
+  {
+    "id": "rce_params_post",
+    "type": "rce",
+    "status": "ERROR",
+    "severity": "CRITICAL"
+  },
+  {
+    "id": "debug_exposure",
+    "type": "debug_exposure",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "open_redirect",
+    "type": "open_redirect",
+    "status": "ERROR",
+    "severity": "LOW"
+  },
+  {
+    "id": "crlf_injection",
+    "type": "crlf_injection",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "ssrf_cloud_metadata",
+    "type": "ssrf",
+    "status": "ERROR",
+    "severity": "HIGH"
+  },
+  {
+    "id": "idor_numeric",
+    "type": "idor",
+    "status": "ERROR",
+    "severity": "HIGH"
+  },
+  {
+    "id": "spring4shell",
+    "type": "cve_spring4shell",
+    "status": "ERROR",
+    "severity": "CRITICAL"
+  },
+  {
+    "id": "log4shell",
+    "type": "cve_log4shell",
+    "status": "ERROR",
+    "severity": "CRITICAL"
+  },
+  {
+    "id": "race_condition",
+    "type": "race_condition",
+    "status": "ERROR",
+    "severity": "HIGH"
+  },
+  {
+    "id": "cache_poison_check",
+    "type": "cache_deception",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "phpinfo_exposure",
+    "type": "phpinfo",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "ds_store_exposure",
+    "type": "ds_store_exposure",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "nosql_injection_login",
+    "type": "nosql_injection",
+    "status": "ERROR",
+    "severity": "CRITICAL"
+  },
+  {
+    "id": "ldap_injection_search",
+    "type": "ldap_injection",
+    "status": "ERROR",
+    "severity": "HIGH"
+  },
+  {
+    "id": "xpath_injection_xml",
+    "type": "xpath_injection",
+    "status": "ERROR",
+    "severity": "HIGH"
+  },
+  {
+    "id": "ssi_injection",
+    "type": "ssi_injection",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "shellshock_legacy",
+    "type": "shellshock",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "clickjacking_check",
+    "type": "clickjacking",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "graphql_introspection",
+    "type": "graphql_introspection",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "graphql_batching_dos",
+    "type": "graphql_batching",
+    "status": "ERROR",
+    "severity": "MEDIUM"
+  },
+  {
+    "id": "http_request_smuggling",
+    "type": "request_smuggling",
+    "status": "ERROR",
+    "severity": "CRITICAL"
+  },
+  {
+    "id": "hydration_collapse",
+    "type": "rsc_hydration_collapse",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "trust_boundary_violation",
+    "type": "rsc_flight_trust_boundary_violation",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "react_server_component_injection",
+    "type": "rsc_flight_deserialization_abuse",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "xml_bomb_attack",
+    "type": "xml_bomb",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "email_header_injection",
+    "type": "email_injection",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "json_bomb_attack",
+    "type": "json_bomb",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "swagger_ui_exposure",
+    "type": "swagger_exposure",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "traffic_spike_load_post",
+    "type": "traffic_spike",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "password_length_dos",
+    "type": "password_length",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "auth_replay_check",
+    "type": "replay_simple",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "server_side_action_forge",
+    "type": "rsc_server_action_forge",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "rce_reverse_shell_attempt",
+    "type": "rce",
+    "status": "ERROR",
+    "severity": "CRITICAL"
+  },
+  {
+    "id": "ssrf_intranet_port_scan",
+    "type": "ssrf",
+    "status": "ERROR",
+    "severity": "HIGH"
+  },
+  {
+    "id": "malformed_json_check",
+    "type": "malformed_json",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "file_upload_shell",
+    "type": "rce",
+    "status": "ERROR",
+    "severity": "CRITICAL"
+  },
+  {
+    "id": "deserialization_rce",
+    "type": "insecure_deserialization",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "env_exposure_check",
+    "type": "env_exposure",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "log4shell_recursive_delete",
+    "type": "log4shell",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "dos_extreme_annihilation_post",
+    "type": "dos_extreme",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "git_exposure_check",
+    "type": "git_exposure",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "host_header_injection",
+    "type": "host_header",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "jwt_weak_key_brute",
+    "type": "jwt_brute",
+    "status": "ERROR",
+    "severity": "INFO"
+  },
+  {
+    "id": "redos_validation_attack",
+    "type": "redos",
+    "status": "ERROR",
+    "severity": "INFO"
+  }
+]

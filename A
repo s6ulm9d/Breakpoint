@@ -1,0 +1,380 @@
+[
+  {
+    "id": "security_headers",
+    "type": "header_security",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "lfi_path_traversal",
+    "type": "lfi",
+    "status": "SECURE",
+    "severity": "HIGH"
+  },
+  {
+    "id": "sqli_blind_time",
+    "type": "sql_injection",
+    "status": "SECURE",
+    "severity": "CRITICAL"
+  },
+  {
+    "id": "xxe_external_entity",
+    "type": "xxe_exfil",
+    "status": "CONFIRMED",
+    "severity": "LOW"
+  },
+  {
+    "id": "ssti_template_injection",
+    "type": "ssti",
+    "status": "VULNERABLE",
+    "severity": "LOW"
+  },
+  {
+    "id": "rsc_framework_ssrf",
+    "type": "rsc_ssr_ssrf",
+    "status": "SKIPPED",
+    "severity": "INFO"
+  },
+  {
+    "id": "xss_reflected",
+    "type": "xss",
+    "status": "SECURE",
+    "severity": "MEDIUM"
+  },
+  {
+    "id": "crlf_injection",
+    "type": "crlf_injection",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "rce_params_post",
+    "type": "rce",
+    "status": "SKIPPED",
+    "severity": "INFO"
+  },
+  {
+    "id": "rce_shell_shock",
+    "type": "rce",
+    "status": "SKIPPED",
+    "severity": "INFO"
+  },
+  {
+    "id": "prototype_pollution",
+    "type": "prototype_pollution",
+    "status": "SKIPPED",
+    "severity": "INFO"
+  },
+  {
+    "id": "jwt_none_alg",
+    "type": "jwt_weakness",
+    "status": "CONFIRMED",
+    "severity": "HIGH"
+  },
+  {
+    "id": "open_redirect",
+    "type": "open_redirect",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "idor_numeric",
+    "type": "idor",
+    "status": "SECURE",
+    "severity": "HIGH"
+  },
+  {
+    "id": "debug_exposure",
+    "type": "debug_exposure",
+    "status": "CONFIRMED",
+    "severity": "LOW"
+  },
+  {
+    "id": "brute_force_basic",
+    "type": "brute_force",
+    "status": "SECURE",
+    "severity": "MEDIUM"
+  },
+  {
+    "id": "secret_leak_scan",
+    "type": "secret_leak",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "ssrf_cloud_metadata",
+    "type": "ssrf",
+    "status": "SKIPPED",
+    "severity": "INFO"
+  },
+  {
+    "id": "log4shell",
+    "type": "cve_log4shell",
+    "status": "SECURE",
+    "severity": "CRITICAL"
+  },
+  {
+    "id": "slowloris_dos",
+    "type": "dos_slowloris",
+    "status": "SKIPPED",
+    "severity": "INFO"
+  },
+  {
+    "id": "spring4shell",
+    "type": "cve_spring4shell",
+    "status": "SECURE",
+    "severity": "CRITICAL"
+  },
+  {
+    "id": "struts2_rce",
+    "type": "cve_struts2",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "cache_poison_check",
+    "type": "cache_deception",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "otp_reuse_check",
+    "type": "otp_reuse",
+    "status": "SKIPPED",
+    "severity": "INFO"
+  },
+  {
+    "id": "race_condition",
+    "type": "race_condition",
+    "status": "SECURE",
+    "severity": "HIGH"
+  },
+  {
+    "id": "file_inclusion_polyglot",
+    "type": "lfi",
+    "status": "SECURE",
+    "severity": "HIGH"
+  },
+  {
+    "id": "exotic_injection_template",
+    "type": "ssti",
+    "status": "VULNERABLE",
+    "severity": "LOW"
+  },
+  {
+    "id": "clickjacking_check",
+    "type": "clickjacking",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "advanced_dos_checks",
+    "type": "advanced_dos",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "cors_misconfiguration",
+    "type": "cors_origin",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "email_header_injection",
+    "type": "email_injection",
+    "status": "SKIPPED",
+    "severity": "INFO"
+  },
+  {
+    "id": "host_header_injection",
+    "type": "host_header",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "jwt_weak_key_brute",
+    "type": "jwt_brute",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "swagger_ui_exposure",
+    "type": "swagger_exposure",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "env_exposure_check",
+    "type": "env_exposure",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "git_exposure_check",
+    "type": "git_exposure",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "ds_store_exposure",
+    "type": "ds_store_exposure",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "phpinfo_exposure",
+    "type": "phpinfo",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "nosql_injection_login",
+    "type": "nosql_injection",
+    "status": "SKIPPED",
+    "severity": "INFO"
+  },
+  {
+    "id": "ldap_injection_search",
+    "type": "ldap_injection",
+    "status": "SECURE",
+    "severity": "HIGH"
+  },
+  {
+    "id": "ssi_injection",
+    "type": "ssi_injection",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "xpath_injection_xml",
+    "type": "xpath_injection",
+    "status": "SECURE",
+    "severity": "HIGH"
+  },
+  {
+    "id": "graphql_batching_dos",
+    "type": "graphql_batching",
+    "status": "SKIPPED",
+    "severity": "MEDIUM"
+  },
+  {
+    "id": "http_request_smuggling",
+    "type": "request_smuggling",
+    "status": "SECURE",
+    "severity": "CRITICAL"
+  },
+  {
+    "id": "shellshock_legacy",
+    "type": "shellshock",
+    "status": "SKIPPED",
+    "severity": "INFO"
+  },
+  {
+    "id": "graphql_introspection",
+    "type": "graphql_introspection",
+    "status": "SKIPPED",
+    "severity": "INFO"
+  },
+  {
+    "id": "server_side_action_forge",
+    "type": "rsc_server_action_forge",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "xml_bomb_attack",
+    "type": "xml_bomb",
+    "status": "SKIPPED",
+    "severity": "INFO"
+  },
+  {
+    "id": "hydration_collapse",
+    "type": "rsc_hydration_collapse",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "json_bomb_attack",
+    "type": "json_bomb",
+    "status": "SKIPPED",
+    "severity": "INFO"
+  },
+  {
+    "id": "trust_boundary_violation",
+    "type": "rsc_flight_trust_boundary_violation",
+    "status": "SKIPPED",
+    "severity": "INFO"
+  },
+  {
+    "id": "traffic_spike_load_post",
+    "type": "traffic_spike",
+    "status": "SKIPPED",
+    "severity": "INFO"
+  },
+  {
+    "id": "malformed_json_check",
+    "type": "malformed_json",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "redos_validation_attack",
+    "type": "redos",
+    "status": "SKIPPED",
+    "severity": "INFO"
+  },
+  {
+    "id": "dos_extreme_annihilation_post",
+    "type": "dos_extreme",
+    "status": "SKIPPED",
+    "severity": "INFO"
+  },
+  {
+    "id": "rce_reverse_shell_attempt",
+    "type": "rce",
+    "status": "SKIPPED",
+    "severity": "CRITICAL"
+  },
+  {
+    "id": "react_server_component_injection",
+    "type": "rsc_flight_deserialization_abuse",
+    "status": "SKIPPED",
+    "severity": "INFO"
+  },
+  {
+    "id": "password_length_dos",
+    "type": "password_length",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "auth_replay_check",
+    "type": "replay_simple",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "ssrf_intranet_port_scan",
+    "type": "ssrf",
+    "status": "SKIPPED",
+    "severity": "INFO"
+  },
+  {
+    "id": "deserialization_rce",
+    "type": "insecure_deserialization",
+    "status": "SKIPPED",
+    "severity": "INFO"
+  },
+  {
+    "id": "log4shell_recursive_delete",
+    "type": "log4shell",
+    "status": "SECURE",
+    "severity": "LOW"
+  },
+  {
+    "id": "file_upload_shell",
+    "type": "rce",
+    "status": "SKIPPED",
+    "severity": "INFO"
+  }
+]

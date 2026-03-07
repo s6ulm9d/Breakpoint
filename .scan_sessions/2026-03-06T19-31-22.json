@@ -1,0 +1,34 @@
+{
+  "target": "http://localhost:8080",
+  "timestamp": "2026-03-06T19:31:22.549333",
+  "attacks": [
+    {
+      "module": "header_security",
+      "endpoint": "/",
+      "method": "GET",
+      "attack_type": "header_security",
+      "params": null,
+      "json_body": null,
+      "form_body": null,
+      "payload": null,
+      "timestamp": "2026-03-06T19:31:22.548298"
+    }
+  ],
+  "results": [
+    {
+      "id": "security_headers",
+      "type": "header_security",
+      "status": "CONFIRMED",
+      "severity": "LOW",
+      "details": "{'issues': ['Missing Clickjacking Protection (X-Frame-Options / CSP)', 'Missing X-Content-Type-Options: nosniff']}",
+      "confidence": "CONFIRMED",
+      "cwe": "N/A",
+      "owasp": "N/A",
+      "remediation": "N/A",
+      "vulnerable_code": null,
+      "description": "Increased susceptibility to Clickjacking and MIME-type sniffing attacks.",
+      "attack_id": "BRK-6583A22E",
+      "artifacts": []
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "target": "http://localhost:8080",
+  "timestamp": "2026-03-06T19:11:30.348061",
+  "attacks": [
+    {
+      "module": "header_security",
+      "endpoint": "/",
+      "method": "GET",
+      "params": null,
+      "json_body": null,
+      "form_body": null,
+      "payload": null,
+      "timestamp": "2026-03-06T19:11:30.346374"
+    }
+  ]
+}

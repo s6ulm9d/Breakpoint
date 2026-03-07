@@ -1,0 +1,20 @@
+[*] Dev/Localhost detected: Capping concurrency to 8 to ensure stability.
+
+  ____  _____  ______          _   _ _____   ____ _____ _   _ _______ 
+ |  _ \|  __ \|  ____|   /\   | |/ /|  __ \ / __ \|_   _| \ | |__   __|
+ | |_) | |__) | |__     /  \  | ' / | |__) | |  | | | | |  \| |  | |   
+ |  _ <|  _  /|  __|   / /\ \ |  <  |  ___/| |  | | | | | . ` |  | |   
+ | |_) | | \ \| |____ / ____ \| . \ | |    | |__| |_| |_| |\  |  | |   
+ |____/|_|  \_\______/_/    \_\_|\_\|_|     \____/|_____|_| \_|  |_|   
+    
+    BREAKPOINT // WEAPONIZED RESILIENCE ENGINE
+    "Production is already broken."
+
+[*] Checking Internet Connectivity...
+[!] Internet: SLOW (529ms)    
+[*] LICENSE: FREE EDITION
+ [+] AI Engine: ONLINE
+ [*] Forensic Audit initialized.
+------------------------------------------------------------
+[*] Verifying target connectivity: http://127.0.0.1:5002/...
+[!] ABORT: Connection failed: LOCALHOST ERROR: Request Failed (Timeout/Reset). Server is likely struggling or rate-limiting. Error: HTTPConnectionPool(host='127.0.0.1', port=5002): Read timed out. (read timeout=5)
