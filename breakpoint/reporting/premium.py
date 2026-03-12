@@ -389,6 +389,15 @@ class PremiumReportGenerator:
                 if isinstance(response, (dict, list)):
                     response = json.dumps(response, indent=2)
 
+            # Smart Proof of Impact fallback
+            impact_display = r.details.strip() if r.details else ""
+            if not impact_display or impact_display in ["[]", "{}"]:
+                impact_display = r.description or r.details
+            
+            # Smart Slicing
+            if len(impact_display) > 500:
+                impact_display = impact_display[:500] + "..."
+
             html += f"""
             <div class="exploitation-record">
                 <div class="record-header">
@@ -412,7 +421,7 @@ class PremiumReportGenerator:
 
                     <p><strong>Proof of Impact:</strong></p>
                     <div class="impact-proof">
-                        {r.details[:500]}...
+                        {impact_display}
                     </div>
                 </div>
             </div>
