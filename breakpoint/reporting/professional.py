@@ -472,18 +472,11 @@ class ReportDistributionEngine:
         local_json_path = os.path.abspath(json_report)
         local_json_link = f"file://{local_json_path}"
 
-        # 3. Cloud Vault Link (Simulated Enterprise Endpoint)
-        cloud_vault_url = f"https://vault.breakpoint.security/report/{self.scan_id}"
-        
         block = [
-            f"{Fore.GREEN}[+] LOCAL ACCESS LINKS (Click to Open):{Style.RESET_ALL}",
+            f"{Fore.GREEN}[+] LOCAL ACCESS LINKS:{Style.RESET_ALL}",
             f" HTML Report: {Fore.CYAN}{local_html_link}{Style.RESET_ALL}",
-            f" JSON Data:   {Fore.CYAN}{local_json_link}{Style.RESET_ALL}",
+            f" JSON Data:   {Fore.CYAN}{local_json_path}{Style.RESET_ALL}",
             "",
-            f"{Fore.YELLOW}[+] REMOTE CLOUD VAULT (Enterprise Only):{Style.RESET_ALL}",
-            f" Report URL:  {Fore.CYAN}{cloud_vault_url}{Style.RESET_ALL}",
-            f" Status:      Syncing to Vault...",
-            "",
-            f"{Fore.WHITE}[!] NOTE: Local links require terminal emulator support for URI schemes.{Style.RESET_ALL}"
+            f"{Fore.WHITE}[!] NOTE: HTML report link available if supported by terminal emulator.{Style.RESET_ALL}"
         ]
         return "\n".join(block)

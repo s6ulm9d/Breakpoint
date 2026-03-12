@@ -91,6 +91,20 @@ if __name__ == "__main__":
         
         return full_path
 
+    def save_artifact(self, vulnerability_type: str, flavor: str, content: str, extension: str = ".txt"):
+        """
+        Saves an arbitrary artifact (like a patch or a report).
+        """
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_type = vulnerability_type.replace(" ", "_").lower()
+        filename = f"{flavor}_{safe_type}_{timestamp}{extension}"
+        full_path = os.path.join(self.output_dir, filename)
+        
+        with open(full_path, "w") as f:
+            f.write(content)
+        
+        return full_path
+
 class ArtifactManager:
     def __init__(self, base_dir="artifacts"):
         self.base_dir = base_dir

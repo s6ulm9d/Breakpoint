@@ -1,4 +1,4 @@
-from .reporting import EliteHTMLReporter, StructuredReportGenerator
+from .reporting import EliteHTMLReporter, StructuredReportGenerator, PremiumReportGenerator
 from .sarif_reporting import SarifReporter
 from .engine import Engine
 from .scenarios import load_scenarios, SimpleScenario, FlowScenario
@@ -155,6 +155,8 @@ def main():
     out_group = parser.add_argument_group("Reporting")
     out_group.add_argument("--json-report", help="Path to JSON output")
     out_group.add_argument("--html-report", help="Path to HTML Report") 
+    out_group.add_argument("--premium", action="store_true", help="Generate a premium, corporate-grade security report (Shannon format)")
+    out_group.add_argument("--report", action="store_true", help="Shorthand for --premium --html-report report.html")
     out_group.add_argument("--sarif-report", help="Path to SARIF output")
     
     conf_group = parser.add_argument_group("Configuration")
@@ -174,9 +176,15 @@ def main():
     parser.add_argument("--headers", action="append", help="Global headers (Key:Value)")
     
     args, unknown = parser.parse_known_args()
-    
+
     if args.verbose:
         os.environ["BREAKPOINT_VERBOSE"] = "1"
+
+    # Handle shorthand --report flag
+    if args.report:
+        args.premium = True
+        if not args.html_report:
+            args.html_report = "report.html"
 
     # Handle license key flag (Non-interactive activation)
     if args.license_key:
@@ -358,8 +366,10 @@ def main():
         if args.html_report:
             engine.html_report_path = args.html_report
             # The HTML report logic remains in cli.py or triggered here
-            from .reporting import StructuredReportGenerator
-            StructuredReportGenerator(engine).generate(results, args.html_report)
+            if args.premium:
+                PremiumReportGenerator(engine).generate(results, args.html_report)
+            else:
+                StructuredReportGenerator(engine).generate(results, args.html_report)
         if args.sarif_report: SarifReporter(args.sarif_report).generate(results)
         
         sys.exit(0)
@@ -595,8 +605,10 @@ def main():
         forensic_meta = {"run_id": integrity["run_id"], "final_hash": integrity["final_hash"], "signature": integrity["signature"], "target": args.base_url, "iteration": iteration}
         if args.json_report: generate_json_report(results, args.json_report)
         if args.html_report:
-            from .reporting import StructuredReportGenerator
-            StructuredReportGenerator(engine).generate(results, args.html_report)
+            if args.premium:
+                PremiumReportGenerator(engine).generate(results, args.html_report)
+            else:
+                StructuredReportGenerator(engine).generate(results, args.html_report)
         if args.sarif_report: SarifReporter(args.sarif_report).generate(results)
         if not args.continuous: break
         if args.interval > 0: import time; time.sleep(args.interval)

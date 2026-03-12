@@ -8,16 +8,17 @@ from .licensing import get_openai_key
 from colorama import Fore, Style
 
 class AIAnalyzer:
-    def __init__(self, api_key: str = None, forensic_log=None):
+    def __init__(self, api_key: str = None, verbose: bool = False, forensic_log=None):
         self.api_key = api_key or get_openai_key()
+        self.verbose = verbose
         self.client = OpenAI(api_key=self.api_key) if self.api_key else None
         self.logger = forensic_log
 
-    def perform_footprinting(self, source_path: str, url: str, available_modules: List[str]) -> Dict[str, Any]:
+    def perform_footprinting(self, source_path: str, url: str, available_modules: List[str], cpg_context: str = None) -> Dict[str, Any]:
         """
         ULTRA-EFFICIENT SINGLE-CALL ANALYSIS.
         Combines Verification, Module Filtering, and Endpoint Discovery into ONE AI call.
-        Saves ~65% of tokens.
+        Saves ~65% of tokens. Now includes CPG-Augmented reasoning.
         """
         if not self.client:
             return {"match": True, "modules": available_modules, "endpoints": []}
@@ -53,6 +54,11 @@ class AIAnalyzer:
             f"SOURCE CODE ARCHITECTURE:\n{summary_data['tree']}\n\n"
             f"SOURCE CODE SNIPPETS (CRITICAL):\n{summary_data['summary']}\n\n"
             f"AVAILABLE MODULES:\n{', '.join([m.split(':')[0] for m in module_context])}\n\n"
+        )
+        if cpg_context:
+            prompt += f"\nPROJECT DATA FLOWS (CPG-AUGMENTED):\n{cpg_context}\n"
+
+        prompt += (
             f"TASK:\n"
             f"1. VERIFY: Does the source code structure/logic match the live target body/headers? Be skeptical.\n"
             f"2. FILTER: Which of the available modules are actually relevant to this tech stack?\n"
@@ -176,6 +182,28 @@ class AIAnalyzer:
         if isinstance(res, list):
             return res
         return []
+
+    def mutate_payload(self, payload: str, attack_type: str, last_response_context: str = "") -> str:
+        """
+        Uses AI to mutate a payload when it's blocked by a WAF or filter.
+        """
+        if not self.client: return payload
+        
+        prompt = (
+            f"You are a master of WAF evasion. A security test was BLOCKED or Filtered.\n"
+            f"ORIGINAL PAYLOAD: {payload}\n"
+            f"ATTACK TYPE: {attack_type}\n"
+            f"RESPONSE CONTEXT (BLOCK SIGNATURE): {last_response_context[:500]}\n\n"
+            f"TASK: Generate a MUTATED version of the payload that bypasses current filters.\n"
+            f"Consider: Encoding (double-hex, unicode), Obfuscation, Framework-specific bypasses, "
+            f"Case manipulation, and Logic shifts.\n\n"
+            f"RESPONSE FORMAT: Respond ONLY with the mutated payload string. No explanation."
+        )
+        
+        res = self._call_ai(prompt)
+        if isinstance(res, str) and res.strip():
+            return res.strip()
+        return payload
 
     def analyze_target_url(self, url: str, available_modules: List[str]) -> Optional[List[str]]:
         """

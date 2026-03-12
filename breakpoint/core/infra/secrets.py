@@ -2,9 +2,12 @@ import re
 import math
 from typing import List, Dict, Any
 
+from .ai_secrets import AISecretValidator
+
 class SecretDetector:
     """Detects secrets using entropy-based and regex-based approaches."""
     def __init__(self):
+        self.ai_validator = AISecretValidator()
         self.patterns = {
             "AWS Key": r"(?i)aws_access_key_id\s*[:=]\s*['\"]?(A3T[A-Z0-9]{16})['\"]?",
             "AWS Secret": r"(?i)aws_secret_access_key\s*[:=]\s*['\"]?([a-zA-Z0-9/+=]{40})['\"]?",
@@ -29,15 +32,18 @@ class SecretDetector:
             # Regex-based detection
             for name, pattern in self.patterns.items():
                 for i, line in enumerate(lines):
-                    if re.search(pattern, line):
-                        findings.append({
-                            "type": "SECRET",
-                            "severity": "CRITICAL",
-                            "label": name,
-                            "file": file_path,
-                            "line": i + 1,
-                            "evidence": line.strip()[:100]
-                        })
+                    match = re.search(pattern, line)
+                    if match:
+                        candidate = match.group(1) if match.groups() else line.strip()
+                        if self.ai_validator.validate(candidate, line, name):
+                            findings.append({
+                                "type": "SECRET",
+                                "severity": "CRITICAL",
+                                "label": name,
+                                "file": file_path,
+                                "line": i + 1,
+                                "evidence": line.strip()[:100]
+                            })
 
             # Entropy-based detection for long strings
             strings = re.findall(r"['\"]([a-zA-Z0-9\-_+/=]{20,})['\"]", content)
@@ -47,14 +53,15 @@ class SecretDetector:
                     # Find line number (inefficient but works for now)
                     for i, line in enumerate(lines):
                         if s in line:
-                            findings.append({
-                                "type": "SECRET",
-                                "severity": "HIGH",
-                                "label": "High Entropy String (Potential credential)",
-                                "file": file_path,
-                                "line": i + 1,
-                                "evidence": f"Entropy: {entropy:.2f} | String: {s[:10]}..."
-                            })
+                            if self.ai_validator.validate(s, line, "High Entropy String"):
+                                findings.append({
+                                    "type": "SECRET",
+                                    "severity": "HIGH",
+                                    "label": "High Entropy String (Potential credential)",
+                                    "file": file_path,
+                                    "line": i + 1,
+                                    "evidence": f"Entropy: {entropy:.2f} | String: {s[:10]}..."
+                                })
                             break
         except: pass
         return findings

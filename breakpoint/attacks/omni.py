@@ -148,6 +148,15 @@ def run_xss_scan(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]
             # Test GET Params
             resp = client.send("GET", scenario.target, params={field: p}, is_canary=True)
             
+            # WAF DETECTION & AI MUTATION
+            is_blocked = resp.status_code in [403, 406, 999] or any(k in resp.text.lower() for k in ["waf", "forbidden", "access denied", "blocked by"])
+            if is_blocked and scenario.config.get("aggressive") and hasattr(client, 'ai_analyzer') and client.ai_analyzer:
+                print(f"    [!] WAF Block detected for {field}. Requesting AI Bypass...")
+                mutant = client.ai_analyzer.mutate_payload(p, "xss", resp.text)
+                if mutant != p:
+                    resp = client.send("GET", scenario.target, params={field: mutant}, is_canary=True)
+                    p = mutant
+            
             # Context-Aware Detection
             context = extract_reflection_context(resp.text, p)
             if context != "none" and p not in baseline:
@@ -259,7 +268,15 @@ def run_sqli_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, A
             fuzzer.record_feedback("sql", delta)
             
             # ADAPTIVE MUTATION (Aggressive Mode Only)
-            if scenario.config.get("aggressive") and not issues and delta > 0.1:
+            is_blocked = resp.status_code in [403, 406, 999] or any(k in resp.text.lower() for k in ["waf", "forbidden", "access denied", "blocked by"])
+            if is_blocked and scenario.config.get("aggressive") and hasattr(client, 'ai_analyzer') and client.ai_analyzer:
+                print(f"    [!] WAF Block detected for {field}. Requesting AI Bypass...")
+                mutant = client.ai_analyzer.mutate_payload(payload, "sqli", resp.text)
+                if mutant != payload:
+                    resp = client.send("GET", scenario.target, params={field: mutant}, is_canary=True)
+                    duration = resp.elapsed_ms / 1000.0
+                    payload = mutant
+            elif scenario.config.get("aggressive") and not issues and delta > 0.1:
                 mutant = fuzzer.mutate(payload, "sql")
                 resp = client.send("GET", scenario.target, params={field: mutant}, is_canary=True)
                 duration = resp.elapsed_ms / 1000.0
@@ -378,6 +395,16 @@ def run_rce_attack(client: HttpClient, scenario: SimpleScenario) -> Dict[str, An
         for p in payloads:
             if issues: break
             resp = client.send("POST", scenario.target, json_body={field: p}, is_canary=True)
+            
+            # WAF DETECTION & AI MUTATION
+            is_blocked = resp.status_code in [403, 406, 999] or any(k in resp.text.lower() for k in ["waf", "forbidden", "access denied", "blocked by"])
+            if is_blocked and scenario.config.get("aggressive") and hasattr(client, 'ai_analyzer') and client.ai_analyzer:
+                print(f"    [!] WAF Block detected for {field}. Requesting AI Bypass...")
+                mutant = client.ai_analyzer.mutate_payload(p, "rce", resp.text)
+                if mutant != p:
+                    resp = client.send("POST", scenario.target, json_body={field: mutant}, is_canary=True)
+                    p = mutant
+
             duration = resp.elapsed_ms / 1000.0
             output = resp.text.lower()
             

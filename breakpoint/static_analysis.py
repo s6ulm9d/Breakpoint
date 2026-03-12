@@ -143,6 +143,19 @@ class StaticAnalyzer:
         }
         self.trees: Dict[str, ast.AST] = {}
 
+    def get_cpg_summary(self) -> str:
+        """Generates a compressed summary of the tainted data flows found in the CPG."""
+        summary_lines = []
+        for fqdn, symbol in self.symbol_table.symbols.items():
+            if symbol.is_tainted:
+                origin = symbol.taint_source_node.__class__.__name__ if symbol.taint_source_node else "Input"
+                summary_lines.append(f"- Flow: {origin} -> {fqdn}")
+        
+        if not summary_lines:
+            return "No obvious taint flows detected in static analysis."
+            
+        return "\n".join(summary_lines[:20]) # Limit to prevent prompt blowup
+
     def analyze(self) -> List[Dict[str, Any]]:
         findings = []
         if not self.code_path or not os.path.exists(self.code_path): return findings

@@ -6,6 +6,7 @@ from colorama import Fore, Style, init
 from ..models import CheckResult
 from .generator import StructuredReportGenerator
 from .professional import ProfessionalReportBuilder
+from .premium import PremiumReportGenerator
 
 init(autoreset=True)
 

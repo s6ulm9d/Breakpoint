@@ -13,6 +13,7 @@ import hashlib
 
 # NEW MODULES
 from .static_analysis import StaticAnalyzer
+from .ai_analyzer import AIAnalyzer
 from .agents import AdversarialLoop
 from .artifacts.poc_generator import PoCGenerator, ArtifactManager
 from .stac.generators import PytestGenerator, PlaywrightGenerator
@@ -101,11 +102,12 @@ class Engine:
         self.e2e_gen = PlaywrightGenerator()
         self.sandbox = Sandbox()
         self.adv_loop = AdversarialLoop(sandbox=self.sandbox)
-        self.evidence_collector = EvidenceCollector()
-        self.static_findings = []
-        
         # Use provided logger or create a new one
         self.logger = forensic_log if forensic_log else ForensicLogger(verbose=verbose)
+        
+        self.ai_analyzer = AIAnalyzer(verbose=verbose, forensic_log=self.logger)
+        self.evidence_collector = EvidenceCollector()
+        self.static_findings = []
         
         # Robust Localhost Detection for Engine
         self._is_localhost = any(x in self.base_url.lower() for x in ["localhost", "127.0.0.1", "0.0.0.0"])
@@ -191,7 +193,8 @@ class Engine:
         from .http_client import HttpClient
         client = HttpClient(self.base_url, verbose=self.verbose, headers=self.headers)
         
-        # Inject OOB Server into client
+        # Inject OOB Server and AI into client
+        client.ai_analyzer = getattr(self, 'ai_analyzer', None)
         if hasattr(self, 'oob_enabled') and self.oob_enabled and self.oob_server:
             client.oob_server = self.oob_server
         try:
@@ -243,7 +246,10 @@ class Engine:
         if self.static_analyzer:
             print(f"[*] Starting Elite Static Analysis (SSA-based Taint Tracking)...")
             self.static_findings = self.static_analyzer.analyze()
+            self.cpg_context = self.static_analyzer.get_cpg_summary()
             print(f"    -> Static Analysis Complete: {len(self.static_findings)} flow patterns identified.")
+            if self.cpg_context:
+                print(f"    -> CPG Context Armed: Data-flow reasoning enabled.")
         
         crawler = Crawler(self.base_url, client)
         print(f"    -> Starting recursive discovery (Max Depth: 3)...")
@@ -361,7 +367,8 @@ class Engine:
                                     validation_result = self.adv_loop.run(
                                         vulnerability_report=str(result.details), 
                                         source_code=snippet,
-                                        target_url=self.base_url + (scenario.target if scenario.target.startswith('/') else '/' + scenario.target)
+                                        target_url=self.base_url + (scenario.target if scenario.target.startswith('/') else '/' + scenario.target),
+                                        cpg_context=getattr(self, 'cpg_context', None)
                                     )
                                     
                                     # Log validation attempt summary

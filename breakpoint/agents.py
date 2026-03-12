@@ -54,37 +54,62 @@ class AdversarialLoop:
         self.sandbox = sandbox
         self.max_iterations = max_iterations
 
-    def run(self, vulnerability_report: str, source_code: str, target_url: str = "http://localhost:3000") -> dict:
-        """Executes the Breaker -> Validator loop with aggressive token saving."""
+    def run(self, vulnerability_report: str, source_code: str, target_url: str = "http://localhost:3000", cpg_context: str = None) -> dict:
+        """Executes the Breaker -> Validator loop with iterative refinement and CPG augmentation."""
         # Truncate inputs to save tokens
         vulnerability_report = vulnerability_report[:500]
         source_code = source_code[:1000]
 
         print(f"\n[*] AI Validation Loop (Max Iter: {self.max_iterations})...")
         
-        context = f"Vulnerability: {vulnerability_report}\nCode: {source_code}\nTarget: {target_url}\nRequirement: Print '[!] ATTEMPT SUCCESSFUL' on success."
-        poc = self.breaker.chat(context)
+        last_error = ""
+        current_poc = None
         
-        if not poc or "import " not in poc:
-            return {"status": "HEURISTIC", "confidence": "LOW", "poc": None, "details": "Breaker failed PoC generation."}
+        for i in range(self.max_iterations):
+            iteration_msg = f" (Attempt {i+1}/{self.max_iterations})" if i > 0 else ""
+            print(f"    [>] Generating PoC{iteration_msg}...")
             
-        if "```python" in poc:
-            poc = poc.split("```python")[1].split("```")[0].strip()
-        elif "```" in poc:
-            poc = poc.split("```")[1].split("```")[0].strip()
+            context = f"Vulnerability: {vulnerability_report}\nCode: {source_code}\nTarget: {target_url}\nRequirement: Print '[!] ATTEMPT SUCCESSFUL' on success."
+            
+            if cpg_context:
+                context += f"\n\nSTRUCTURAL CONTEXT (CPG Flow): {cpg_context}"
+                
+            if last_error:
+                context += f"\n\nCRITICAL: Your previous attempt FAILED with this output:\n---\n{last_error}\n---\nAnalyze the error and refine the payload/logic to bypass or fix the issue."
 
-        if not self.sandbox or not self.sandbox.is_healthy():
-            return {"status": "UNVERIFIED", "confidence": "LOW", "poc": poc, "details": "Sandbox unavailable."}
+            current_poc = self.breaker.chat(context)
+            
+            if not current_poc or "import " not in current_poc:
+                # If it's a second attempt and still failing, just stop or keep trying?
+                # We'll continue the loop if iterations remain.
+                last_error = "Breaker failed to generate a valid Python script containing 'import'."
+                continue
+                
+            if "```python" in current_poc:
+                current_poc = current_poc.split("```python")[1].split("```")[0].strip()
+            elif "```" in current_poc:
+                current_poc = current_poc.split("```")[1].split("```")[0].strip()
 
-        print(f"    [>] Executing PoC...")
-        success, output = self.sandbox.execute_poc(poc)
-        
-        val_prompt = f"Report: {vulnerability_report}\nOutput:\n{output[:1000]}\nConfirm if successful."
-        validation_decision = self.validator.chat(val_prompt).strip().upper()
+            if not self.sandbox or not self.sandbox.is_healthy():
+                return {"status": "UNVERIFIED", "confidence": "LOW", "poc": current_poc, "details": "Sandbox unavailable."}
 
-        if "CONFIRMED" in validation_decision:
-            return {"status": "CONFIRMED", "confidence": "HIGH", "poc": poc, "details": "AI Validator confirmed reproduction."}
-        elif "[!] ATTEMPT SUCCESSFUL" in output:
-             return {"status": "CONFIRMED", "confidence": "MEDIUM", "poc": poc, "details": "PoC triggered success indicator."}
-        
-        return {"status": "FAILED", "confidence": "LOW", "poc": poc, "details": f"Validator decision: {validation_decision}. Logs: {output[:100]}..."}
+            print(f"    [>] Executing PoC...")
+            success, output = self.sandbox.execute_poc(current_poc)
+            
+            # 1. Immediate Success Indicator
+            if "[!] ATTEMPT SUCCESSFUL" in output:
+                print(f"    {Fore.GREEN}[+] Success detected in logs!{Style.RESET_ALL}")
+                return {"status": "CONFIRMED", "confidence": "HIGH", "poc": current_poc, "details": "PoC triggered success indicator."}
+            
+            # 2. AI Validation Decision
+            val_prompt = f"Report: {vulnerability_report}\nOutput:\n{output[:1000]}\nConfirm if successful."
+            validation_decision = self.validator.chat(val_prompt).strip().upper()
+
+            if "CONFIRMED" in validation_decision:
+                return {"status": "CONFIRMED", "confidence": "HIGH", "poc": current_poc, "details": "AI Validator confirmed reproduction."}
+            
+            # 3. Handle Failure and Loop
+            print(f"    {Fore.YELLOW}[-] Attempt {i+1} failed. Refining...{Style.RESET_ALL}")
+            last_error = output[:1500] # Provide enough context for the breaker
+
+        return {"status": "FAILED", "confidence": "LOW", "poc": current_poc, "details": f"Failed after {self.max_iterations} attempts. Last logs: {last_error[:100]}..."}
