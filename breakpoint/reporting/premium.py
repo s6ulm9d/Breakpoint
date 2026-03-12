@@ -47,19 +47,27 @@ class PremiumReportGenerator:
 
     def _categorize_results(self, results: List[CheckResult]) -> Dict[str, List[CheckResult]]:
         mapping = {
-            "Authentication": ["auth", "login", "brute", "credential", "jwt"],
-            "Authorization": ["idor", "access_control", "tenant", "privilege"],
-            "Injection": ["sqli", "sql", "nosql", "command", "rce", "ssti", "xxe", "yaml"],
-            "XSS": ["xss", "jsonp"],
-            "SSRF": ["ssrf", "internal_scan"]
+            "Authentication": ["auth", "login", "brute", "credential", "jwt", "password", "session", "oauth"],
+            "Authorization": ["idor", "access_control", "tenant", "privilege", "role", "permissions", "acl", "bypass"],
+            "Injection": ["sqli", "sql", "nosql", "command", "rce", "ssti", "xxe", "yaml", "injection", "blind", "time", "os_", "eval", "pickle", "deserialization", "path_traversal", "lfi", "rfi"],
+            "XSS": ["xss", "cross-site", "scripting", "jsonp", "reflected", "stored", "dom_"],
+            "SSRF": ["ssrf", "internal_scan", "request_forgery", "metadata"]
         }
         
         categorized = {k: [] for k in mapping.keys()}
+        categorized["Miscellaneous"] = []
+        
         for r in results:
+            found = False
+            r_type_lower = r.type.lower()
             for cat, keywords in mapping.items():
-                if any(kw in r.type.lower() for kw in keywords):
+                if any(kw in r_type_lower for kw in keywords):
                     categorized[cat].append(r)
+                    found = True
                     break
+            if not found:
+                categorized["Miscellaneous"].append(r)
+                
         return categorized
 
     def _get_summary_stats(self, categorized: Dict[str, List[CheckResult]]) -> Dict[str, str]:
@@ -359,6 +367,10 @@ class PremiumReportGenerator:
                 <section id="authorization-exploitation">
                     <h2>Authorization Exploitation Evidence</h2>
                     {self._render_exploitation_records(vulnerabilities.get('Authorization', []))}
+                </section>
+
+                <section id="miscellaneous-exploitation">
+                    {f"<h2>Additional Exploitation Evidence</h2>{self._render_exploitation_records(vulnerabilities.get('Miscellaneous', []))}" if vulnerabilities.get('Miscellaneous') else ""}
                 </section>
 
                 <div class="footer">
