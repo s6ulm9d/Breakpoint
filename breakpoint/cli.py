@@ -306,9 +306,9 @@ def main():
  | |_) | | \ \| |____ / ____ \| . \ | |    | |__| |_| |_| |\  |  | |   
  |____/|_|  \_\______/_/    \_\_|\_\|_|     \____/|_____|_| \_|  |_|   
     """
-    print(f"{Fore.RED}{BANNER}")
-    print(f"{Fore.RED}    BREAKPOINT // WEAPONIZED RESILIENCE ENGINE")
-    print(f"{Fore.RED}    \"Production is already broken.\"{Style.RESET_ALL}\n")
+    print(f"{Fore.CYAN}{BANNER}")
+    print(f"{Fore.CYAN}    Breakpoint Security Audit Engine")
+    print(f"{Fore.CYAN}    Automated Vulnerability Research & Verification{Style.RESET_ALL}\n")
 
     check_internet_connectivity()
     tier = get_license_tier()
@@ -479,7 +479,7 @@ def main():
                                  type="simple", attack_type=mod_id, target=path, method=method,
                                  config={"fields": params, "aggressive": args.aggressive}
                              ))
-                print(f"    [+] Dynamic Surface: Added {len(scenarios) - len([s for s in scenarios if not s.id.startswith('ai_')])} targeted scenarios.")
+                print(f"    [+] AI Phase: Dynamic Surface - Added {len(scenarios) - len([s for s in scenarios if not s.id.startswith('ai_')])} targeted scenarios.")
         else:
              print(f"\n{Fore.CYAN}[*] URL-ONLY MODE: AI Analysis Disabled (No source path provided).{Style.RESET_ALL}")
 
@@ -504,7 +504,7 @@ def main():
         # Fix: Filter based on the actual attack module ID
         scenarios = [s for s in scenarios if getattr(s, 'attack_type', s.type) in selected_module_ids]
 
-        # --- DEDUPLICATION: Ensure "Elite" precision by removing identical probes ---
+        # --- DEDUPLICATION: Ensure audit precision by removing identical probes ---
         unique_scenarios = []
         seen_fingerprints = set()
         import json
@@ -566,7 +566,7 @@ def main():
             print(f"\n{Fore.RED}" + "!"*60 + "\n WARNING: DESTRUCTIVE MODE ENABLED\n" + "!"*60 + f"{Style.RESET_ALL}")
             print(f"\nType {Fore.RED}'I AUTHORIZE DESTRUCTION'{Style.RESET_ALL} to proceed:")
             if input().strip() != "I AUTHORIZE DESTRUCTION": sys.exit(1)
-        print(f"\n{Fore.GREEN}[+] DESTRUCTION AUTHORIZED. UNLEASHING CHAOS...{Style.RESET_ALL}\n")
+        print(f"\n{Fore.GREEN}[+] DESTRUCTION AUTHORIZED. PROCEEDING WITH AGGRESSIVE AUDIT...{Style.RESET_ALL}\n")
         logger.log_override_event(mode="AGGRESSIVE", target=args.base_url, env=args.env)
 
     engine = Engine(

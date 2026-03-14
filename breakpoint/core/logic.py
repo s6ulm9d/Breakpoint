@@ -15,16 +15,24 @@ class ConfidenceEngine:
     """Aggregates evidence from multiple detection layers."""
     @staticmethod
     def calculate(result: CheckResult, static_findings: List[Dict[str, Any]] = None, ai_confirmed: bool = False) -> str:
-        score = 0
-        if result.status == "VULNERABLE": score += 40
-        elif result.status == "CONFIRMED": score += 70
+        # 1. Base score from empirical verification signal in omni.py
+        score = getattr(result, 'confidence_score', 0.0) * 100
+        
+        # 2. Additive signals
+        if result.status == "CONFIRMED": score += 10 # Extra boost for manual logic confirmation
         if static_findings:
             for find in static_findings:
                 if find.get("sink", "").lower() in result.type.lower():
-                    score += 30
+                    score += 20
                     break
-        if ai_confirmed: score += 25
+        if ai_confirmed: score += 15
         if result.artifacts and len(result.artifacts) > 0: score += 5
+
+        # Cap at 100
+        score = min(score, 100)
+        
+        # Update the result object score
+        result.confidence_score = score / 100.0
 
         if score >= 90: return "CONFIRMED"
         if score >= 70: return "HIGH"

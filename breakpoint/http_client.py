@@ -32,6 +32,16 @@ class ResponseWrapper:
     def is_client_error(self):
         return 400 <= self.status_code < 500
 
+    def get_proof(self, marker: str = None) -> str:
+        if not marker or not self.text or marker not in self.text:
+            return self.response_dump
+        idx = self.text.find(marker)
+        start = max(0, idx - 150)
+        end = min(len(self.text), idx + len(marker) + 150)
+        snippet = self.text[start:end]
+        headers_str = "\n".join(f"{k}: {v}" for k, v in self.headers.items())
+        return f"HTTP/1.1 {self.status_code}\n{headers_str}\n\n...[snip]...\n{snippet}\n...[snip]..."
+
 # Modern User Agents to bypass basic bot filters
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
@@ -303,7 +313,19 @@ class HttpClient:
 
     def send(self, method: str, path: str, params: Dict = None, json_body: Dict = None, form_body: Any = None, headers: Dict = None, timeout: int = None, is_canary: bool = False, allow_redirects: bool = True) -> ResponseWrapper:
         """Sends a request with retry logic, evasion headers, and scope enforcement."""
-        url = urllib.parse.urljoin(self.base_url, path)
+        # 1. Parse existing parameters from the path if any
+        joined_url = urllib.parse.urljoin(self.base_url, path)
+        url_parsed = urllib.parse.urlparse(joined_url)
+        
+        # Merge URL parameters with passed params
+        merged_params = urllib.parse.parse_qs(url_parsed.query)
+        merged_params = {k: v[0] for k, v in merged_params.items()}
+        
+        if params:
+            merged_params.update(params)
+            
+        # Reconstruct URL without query string
+        url = f"{url_parsed.scheme}://{url_parsed.netloc}{url_parsed.path}"
         
         # SCOPE GUARD
         if not self._is_in_scope(url):
@@ -315,8 +337,7 @@ class HttpClient:
         cb_val = random.randint(1000000, 9999999)
         # Avoid appending if it looks like a static asset to avoid 404s
         if not any(url.endswith(ext) for ext in [".js", ".css", ".png", ".jpg"]):
-             if "?" in url: url += f"&{cb_key}={cb_val}"
-             else: url += f"?{cb_key}={cb_val}"
+             merged_params[cb_key] = cb_val
 
         # Standard headers
         base_headers = {
@@ -408,7 +429,7 @@ class HttpClient:
                 resp = self.session.request(
                     method.upper(),
                     url,
-                    params=params,
+                    params=merged_params,
                     data=form_body,
                     json=json_body,
                     headers=req_headers,

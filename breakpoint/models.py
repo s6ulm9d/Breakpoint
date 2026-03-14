@@ -24,6 +24,9 @@ class Scenario:
     type: str
     target: str
     method: str = "GET"
+    path: str = "/"
+    parameter: str = "N/A"
+    auth: bool = False
     config: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
@@ -41,6 +44,17 @@ class CheckResult:
     description: Optional[str] = None
     attack_id: Optional[str] = None
     artifacts: List[Dict[str, str]] = field(default_factory=list)
+    
+    # Detailed metadata for professional reporting
+    method: str = "GET"
+    endpoint: str = "/"
+    parameter: str = "N/A"
+    auth_required: bool = False
+    
+    # Accuracy & Verification enhancements
+    confidence_score: float = 0.0  # 0.0 to 1.0
+    verification_msg: str = ""     # Explanation of proof (e.g., 'Evaluated {{7*7}} to 49')
+    is_verified: bool = False
 
 @dataclass
 class AttackArtifact:

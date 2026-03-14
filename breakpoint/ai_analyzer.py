@@ -13,6 +13,124 @@ class AIAnalyzer:
         self.verbose = verbose
         self.client = OpenAI(api_key=self.api_key) if self.api_key else None
         self.logger = forensic_log
+        
+        # Load SAST System Prompt
+        self.sast_prompt = ""
+        prompt_path = os.path.join(os.path.dirname(__file__), 'prompts', 'sast_system.md')
+        if os.path.exists(prompt_path):
+            with open(prompt_path, 'r') as f:
+                self.sast_prompt = f.read()
+
+    def reason_about_project(self, source_path: str, cpg_context: str = None) -> List[Dict[str, Any]]:
+        """
+        Deep Reasoning Mode: Performs architectural, taint, and logic analysis.
+        Follows the methodology in the SAST system prompt.
+        """
+        if not self.client or not self.sast_prompt:
+            return []
+
+        print(f"[*] AI Reasoning Engine: Performing deep project audit...")
+        
+        summary_data = self._summarize_directory(source_path)
+        
+        user_context = (
+            f"PROJECT ARCHITECTURE:\n{summary_data['tree']}\n\n"
+            f"SOURCE CODE SNIPPETS:\n{summary_data['summary']}\n\n"
+        )
+        if cpg_context:
+            user_context += f"STATIC ANALYSIS FLOWS (CPG):\n{cpg_context}\n\n"
+
+        user_context += "Analyze the codebase according to your identity as BREAKPOINT. Use the structured report format for any findings."
+
+        # Call AI with the specific system prompt
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-4o", # Use gpt-4o for complex reasoning
+                messages=[
+                    {"role": "system", "content": self.sast_prompt},
+                    {"role": "user", "content": user_context}
+                ],
+                temperature=0.1,
+            )
+            
+            raw_result = response.choices[0].message.content.strip()
+            return self._parse_sast_findings(raw_result)
+        except Exception as e:
+            print(f"    [-] AI Reasoning failed: {e}")
+            return []
+
+    def _parse_sast_findings(self, text: str) -> List[Dict[str, Any]]:
+        """
+        Parses the structured BREAKPOINT FINDING format from raw text.
+        """
+        findings = []
+        blocks = text.split("┌───")
+        for block in blocks:
+            if "BREAKPOINT FINDING" not in block:
+                continue
+            
+            finding = {
+                "title": "Unknown",
+                "severity": "LOW",
+                "confidence": "POSSIBLE",
+                "cwe": "",
+                "owasp": "",
+                "file": "",
+                "lines": "",
+                "function": "",
+                "description": "",
+                "taint_trace": "",
+                "poc": "",
+                "remediation": ""
+            }
+            
+            lines = block.split("\n")
+            current_section = None
+            
+            for line in lines:
+                clean_line = line.strip("│ \t\r\n┌┐└┘├┤─")
+                if not clean_line: continue
+                
+                if "Title" in clean_line and ":" in clean_line:
+                    finding["title"] = clean_line.split(":", 1)[1].strip()
+                elif "Severity" in clean_line and ":" in clean_line:
+                    finding["severity"] = clean_line.split(":", 1)[1].strip()
+                elif "Confidence" in clean_line and ":" in clean_line:
+                    finding["confidence"] = clean_line.split(":", 1)[1].strip()
+                elif "CWE" in clean_line and ":" in clean_line:
+                    finding["cwe"] = clean_line.split(":", 1)[1].strip()
+                elif "OWASP" in clean_line and ":" in clean_line:
+                    finding["owasp"] = clean_line.split(":", 1)[1].strip()
+                
+                elif "LOCATION" in clean_line: current_section = "location"
+                elif "VULNERABILITY DESCRIPTION" in clean_line: current_section = "description"
+                elif "TAINT TRACE" in clean_line: current_section = "taint"
+                elif "PROOF OF CONCEPT" in clean_line: current_section = "poc"
+                elif "REMEDIATION" in clean_line: current_section = "remediation"
+                
+                elif current_section == "location":
+                    if "File" in clean_line: finding["file"] = clean_line.split(":", 1)[1].strip()
+                    elif "Line" in clean_line: finding["lines"] = clean_line.split(":", 1)[1].strip()
+                    elif "Function" in clean_line: finding["function"] = clean_line.split(":", 1)[1].strip()
+                elif current_section == "description":
+                    finding["description"] += clean_line + " "
+                elif current_section == "taint":
+                    finding["taint_trace"] += clean_line + "\n"
+                elif current_section == "poc":
+                    finding["poc"] += clean_line + "\n"
+                elif current_section == "remediation":
+                    finding["remediation"] += clean_line + "\n"
+            
+            # Final cleanup
+            finding["description"] = finding["description"].strip()
+            finding["taint_trace"] = finding.get("taint_trace", "").strip()
+            finding["poc"] = finding.get("poc", "").strip()
+            finding["remediation"] = finding.get("remediation", "").strip()
+            
+            findings.append(finding)
+            
+        return findings
+
 
     def perform_footprinting(self, source_path: str, url: str, available_modules: List[str], cpg_context: str = None) -> Dict[str, Any]:
         """

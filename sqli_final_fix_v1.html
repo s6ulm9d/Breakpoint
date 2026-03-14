@@ -1,0 +1,673 @@
+
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Security Assessment Report: 127.0.0.1</title>
+            <style>
+        :root {
+            /* Color Palette - Professional Slate & Steel */
+            --color-bg: #f1f5f9;
+            --color-surface: #ffffff;
+            --color-surface-dim: #f8fafc;
+            --color-text-primary: #0f172a;
+            --color-text-secondary: #334155;
+            --color-text-muted: #64748b;
+            --color-accent: #1e293b;
+            --color-border: #e2e8f0;
+            --color-border-soft: #f1f5f9;
+            
+            /* Functional Colors */
+            --color-critical: #991b1b;
+            --color-critical-bg: #fef2f2;
+            --color-high: #9a3412;
+            --color-high-bg: #fff7ed;
+            --color-medium: #92400e;
+            --color-medium-bg: #fffbeb;
+            --color-low: #166534;
+            --color-low-bg: #f0fdf4;
+            --color-info: #0369a1;
+            --color-info-bg: #f0f9ff;
+            
+            /* Spacing System */
+            --space-1: 0.25rem;
+            --space-2: 0.5rem;
+            --space-3: 0.75rem;
+            --space-4: 1rem;
+            --space-6: 1.5rem;
+            --space-8: 2rem;
+            --space-10: 2.5rem;
+            --space-12: 3rem;
+            --space-16: 4rem;
+            
+            /* Component Radius */
+            --radius-sm: 4px;
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            
+            /* Shadow */
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body { 
+            background: var(--color-bg); 
+            color: var(--color-text-primary); 
+            font-family: 'Inter', system-ui, -apple-system, sans-serif; 
+            line-height: 1.6; 
+            font-size: 15px;
+            -webkit-font-smoothing: antialiased;
+        }
+        
+        .container {
+            max-width: 1000px;
+            margin: var(--space-8) auto;
+            background: var(--color-surface);
+            padding: var(--space-12) var(--space-16);
+            box-shadow: var(--shadow-md);
+            border-radius: var(--radius-lg);
+        }
+        
+        header { 
+            border-bottom: 3px solid var(--color-text-primary); 
+            padding-bottom: var(--space-6); 
+            margin-bottom: var(--space-10); 
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+        
+        h1 { font-size: 2.5rem; font-weight: 800; letter-spacing: -0.03em; color: var(--color-text-primary); }
+        h2 { font-size: 1.75rem; font-weight: 700; color: var(--color-text-primary); margin: var(--space-12) 0 var(--space-6) 0; border-bottom: 2px solid var(--color-border-soft); padding-bottom: var(--space-2); }
+        h3 { font-size: 1.25rem; font-weight: 600; color: var(--color-accent); margin: var(--space-8) 0 var(--space-4) 0; }
+        
+        /* Table of Contents */
+        .toc {
+            background: var(--color-surface-dim);
+            padding: var(--space-6);
+            border-radius: var(--radius-md);
+            margin-bottom: var(--space-10);
+            border: 1px solid var(--color-border);
+        }
+        .toc h4 { font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); margin-bottom: var(--space-3); }
+        .toc ul { list-style: none; display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-2); }
+        .toc a { text-decoration: none; color: var(--color-info); font-size: 0.9rem; font-weight: 500; }
+        .toc a:hover { text-decoration: underline; }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: var(--space-4);
+            margin-bottom: var(--space-10);
+        }
+        
+        .stat-card {
+            background: var(--color-surface);
+            padding: var(--space-4);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-md);
+            text-align: center;
+            box-shadow: var(--shadow-sm);
+        }
+        .stat-card .label { font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; margin-bottom: var(--space-1); }
+        .stat-card .value { font-size: 1.5rem; font-weight: 800; }
+
+        .vuln-card {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-lg);
+            margin-bottom: var(--space-8);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+        }
+        
+        .vuln-header {
+            padding: var(--space-4) var(--space-6);
+            background: var(--color-surface-dim);
+            border-bottom: 1px solid var(--color-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .vuln-title { font-size: 1.1rem; font-weight: 700; color: var(--color-text-primary); text-transform: uppercase; }
+        
+        .severity-badge {
+            padding: var(--space-1) var(--space-3);
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+        
+        .vuln-body { padding: var(--space-6); }
+        
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: var(--space-6);
+            margin-bottom: var(--space-6);
+            padding-bottom: var(--space-6);
+            border-bottom: 1px solid var(--color-border-soft);
+        }
+        
+        .meta-item .label { font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; margin-bottom: var(--space-1); }
+        .meta-item .value { font-size: 0.9rem; font-weight: 600; color: var(--color-text-secondary); }
+        
+        .code-block {
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: var(--space-4);
+            border-radius: var(--radius-md);
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 0.85rem;
+            overflow-x: auto;
+            margin-top: var(--space-2);
+            border: 1px solid #1e293b;
+            line-height: 1.5;
+        }
+        
+        .evidence-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: var(--space-4);
+            margin-top: var(--space-4);
+        }
+        
+        .remediation-box {
+            background: var(--color-info-bg);
+            color: var(--color-info);
+            padding: var(--space-4);
+            border-radius: var(--radius-md);
+            margin-top: var(--space-6);
+            font-size: 0.9rem;
+            border-left: 4px solid var(--color-info);
+        }
+
+        .confidence-bar-container {
+            width: 100%;
+            height: 6px;
+            background: var(--color-border-soft);
+            border-radius: 3px;
+            margin-top: var(--space-2);
+            overflow: hidden;
+        }
+        .confidence-bar-fill {
+            height: 100%;
+            background: var(--color-info);
+            transition: width 0.5s ease-in-out;
+        }
+
+        .verification-callout {
+            background: var(--color-high-bg);
+            border: 1px dashed var(--color-high);
+            color: var(--color-high);
+            padding: var(--space-3);
+            border-radius: var(--radius-md);
+            font-size: 0.85rem;
+            margin-bottom: var(--space-4);
+            font-weight: 500;
+        }
+
+        .footer { 
+            text-align: center; 
+            margin-top: var(--space-16); 
+            padding-top: var(--space-8); 
+            border-top: 1px solid var(--color-border); 
+            color: var(--color-text-muted); 
+            font-size: 0.75rem; 
+        }
+        
+        @media (min-width: 768px) {
+            .evidence-grid { grid-template-columns: 1fr 1fr; }
+        }
+
+        @media print {
+            body { background: white; font-size: 11pt; }
+            .container { box-shadow: none; border: none; max-width: 100%; margin: 0; padding: 0.5in; }
+            .vuln-card { break-inside: avoid; border: 1px solid #ccc; }
+        }
+        </style>
+        </head>
+        <body>
+            <div class="container">
+                <header>
+                    <h1>Security Audit Report</h1>
+                    <div style="text-align: right; color: var(--color-text-muted); font-size: 0.8rem;">
+                        Scan ID: BRK-20260312211204<br>
+                        2026-03-12 21:12:04
+                    </div>
+                </header>
+
+                <section id="executive-summary">
+                    <h2>Executive Summary</h2>
+                    
+                    <div style="margin-bottom: var(--space-8); display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-8);">
+                        <div>
+                            <p style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Assessment Target</p>
+                            <p style="font-size: 1.25rem; font-weight: 700; color: var(--color-text-primary);">127.0.0.1</p>
+                        </div>
+                        <div>
+                            <p style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Report Date</p>
+                            <p style="font-size: 1.25rem; font-weight: 700; color: var(--color-text-primary);">March 2026</p>
+                        </div>
+                    </div>
+
+                    <div class="toc">
+                        <h4>Table of Contents</h4>
+                        <ul>
+                            <li><a href="#summary-stats">Risk Summary</a></li>
+                            <li><a href="#injection">Findings: Injection</a></li>
+                        </ul>
+                    </div>
+
+                    <h3 id="summary-stats">Advisory Risk Summary</h3>
+                    <div class="summary-grid">
+                        <div class="stat-card">
+                            <div class="label">Total Findings</div>
+                            <div class="value">1</div>
+                        </div>
+                        <div class="stat-card" style="border-top: 4px solid var(--color-critical);">
+                            <div class="label" style="color: var(--color-critical);">Critical</div>
+                            <div class="value">1</div>
+                        </div>
+                        <div class="stat-card" style="border-top: 4px solid var(--color-high);">
+                            <div class="label" style="color: var(--color-high);">High</div>
+                            <div class="value">0</div>
+                        </div>
+                        <div class="stat-card" style="border-top: 4px solid var(--color-medium);">
+                            <div class="label" style="color: var(--color-medium);">Medium</div>
+                            <div class="value">0</div>
+                        </div>
+                        <div class="stat-card" style="border-top: 4px solid var(--color-low);">
+                            <div class="label" style="color: var(--color-low);">Low</div>
+                            <div class="value">0</div>
+                        </div>
+                        <div class="stat-card" style="border-top: 4px solid var(--color-info);">
+                            <div class="label" style="color: var(--color-info);">Info</div>
+                            <div class="value">0</div>
+                        </div>
+                    </div>
+
+                    <div style="background: var(--color-surface-dim); padding: var(--space-6); border-radius: var(--radius-md); border-left: 4px solid var(--color-critical); margin-bottom: var(--space-12);">
+                        <p style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase;">Highest Risk Detected</p>
+                        <p style="color: var(--color-critical); font-weight: 800; font-size: 1.1rem; margin-top: var(--space-1);">SQL INJECTION: Attackers can extract user credentials, emails, and session tokens from the database, or manipulate data via blind or union-based in...</p>
+                    </div>
+                <section id="detailed-findings">
+                    <h2>Detailed Audit Findings</h2>
+                    
+                    
+                    <section id="injection" style="margin-top: var(--space-8);">
+                        <h3 style="border-left: 4px solid var(--color-accent); padding-left: var(--space-3);">Injection Findings</h3>
+                        <div id="injection">
+            <div class="vuln-card" style="border-left: 4px solid var(--color-critical);">
+                <div class="vuln-header">
+                    <div>
+                        <span class="vuln-title">SQL INJECTION</span>
+                        <span style="margin-left: 10px; background: var(--color-high); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; vertical-align: middle;">VERIFIED EXPLOIT</span>
+                    </div>
+                    <div>
+                        
+                        <span class="severity-badge sev-critical">CRITICAL</span>
+                    </div>
+                </div>
+
+                <div class="vuln-body">
+                    
+                <div class="verification-callout">
+                    <strong>Exploit Proof:</strong> Boolean-based SQLi Verified in 'q'. Path: %' AND '1'='1' -- vs %' AND '1'='2' -- caused content shift (375 vs 21 bytes).
+                </div>
+                
+                    
+                    <p style="font-weight: 500; font-size: 1rem; color: var(--color-text-primary); margin-bottom: var(--space-4);">Attackers can extract user credentials, emails, and session tokens from the database, or manipulate data via blind or union-based injection.</p>
+
+                    <div class="meta-grid">
+                        <div class="meta-item">
+                            <div class="label">Affected Endpoint</div>
+                            <div class="value">GET /</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="label">Vulnerable Parameter</div>
+                            <div class="value" style="font-family: monospace; color: var(--color-critical);">N/A</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="label">Confidence Score (Confirmed)</div>
+                            <div class="value">
+                                100%
+                                <div class="confidence-bar-container">
+                                    <div class="confidence-bar-fill" style="width: 100%; background: var(--color-critical)"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="label">Standards & Mapping</div>
+                            <div class="value">CWE-89 | A03:2021</div>
+                        </div>
+                    </div>
+
+                    <div class="evidence-grid">
+                        <div>
+                            <p style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Reproduction Payload</p>
+                            <div class="code-block">N/A</div>
+                        </div>
+                        <div>
+                            <p style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Verification Evidence</p>
+                            <div class="code-block">N/A</div>
+                        </div>
+                    </div>
+
+                    <div class="remediation-box">
+                        <p style="font-weight: 700; margin-bottom: 2px;">Recommendation</p>
+                        Use parameterized queries or ORMs. Sanitize all user inputs.
+                    </div>
+                </div>
+            </div>
+            
+            <div class="vuln-card" style="border-left: 4px solid var(--color-critical);">
+                <div class="vuln-header">
+                    <div>
+                        <span class="vuln-title">SQL INJECTION</span>
+                        
+                    </div>
+                    <div>
+                        
+                        <span class="severity-badge sev-critical">CRITICAL</span>
+                    </div>
+                </div>
+
+                <div class="vuln-body">
+                    
+                    
+                    <p style="font-weight: 500; font-size: 1rem; color: var(--color-text-primary); margin-bottom: var(--space-4);">Attackers can extract user credentials, emails, and session tokens from the database, or manipulate data via blind or union-based injection.</p>
+
+                    <div class="meta-grid">
+                        <div class="meta-item">
+                            <div class="label">Affected Endpoint</div>
+                            <div class="value">GET /</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="label">Vulnerable Parameter</div>
+                            <div class="value" style="font-family: monospace; color: var(--color-critical);">N/A</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="label">Confidence Score (TENTATIVE)</div>
+                            <div class="value">
+                                10%
+                                <div class="confidence-bar-container">
+                                    <div class="confidence-bar-fill" style="width: 10%; background: var(--color-info)"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="label">Standards & Mapping</div>
+                            <div class="value">CWE-89 | A03:2021</div>
+                        </div>
+                    </div>
+
+                    <div class="evidence-grid">
+                        <div>
+                            <p style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Reproduction Payload</p>
+                            <div class="code-block">N/A</div>
+                        </div>
+                        <div>
+                            <p style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Verification Evidence</p>
+                            <div class="code-block">N/A</div>
+                        </div>
+                    </div>
+
+                    <div class="remediation-box">
+                        <p style="font-weight: 700; margin-bottom: 2px;">Recommendation</p>
+                        Use parameterized queries or ORMs. Sanitize all user inputs.
+                    </div>
+                </div>
+            </div>
+            
+            <div class="vuln-card" style="border-left: 4px solid var(--color-critical);">
+                <div class="vuln-header">
+                    <div>
+                        <span class="vuln-title">SQL INJECTION</span>
+                        
+                    </div>
+                    <div>
+                        
+                        <span class="severity-badge sev-critical">CRITICAL</span>
+                    </div>
+                </div>
+
+                <div class="vuln-body">
+                    
+                    
+                    <p style="font-weight: 500; font-size: 1rem; color: var(--color-text-primary); margin-bottom: var(--space-4);">Attackers can extract user credentials, emails, and session tokens from the database, or manipulate data via blind or union-based injection.</p>
+
+                    <div class="meta-grid">
+                        <div class="meta-item">
+                            <div class="label">Affected Endpoint</div>
+                            <div class="value">GET /</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="label">Vulnerable Parameter</div>
+                            <div class="value" style="font-family: monospace; color: var(--color-critical);">N/A</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="label">Confidence Score (TENTATIVE)</div>
+                            <div class="value">
+                                10%
+                                <div class="confidence-bar-container">
+                                    <div class="confidence-bar-fill" style="width: 10%; background: var(--color-info)"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="label">Standards & Mapping</div>
+                            <div class="value">CWE-89 | A03:2021</div>
+                        </div>
+                    </div>
+
+                    <div class="evidence-grid">
+                        <div>
+                            <p style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Reproduction Payload</p>
+                            <div class="code-block">N/A</div>
+                        </div>
+                        <div>
+                            <p style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Verification Evidence</p>
+                            <div class="code-block">N/A</div>
+                        </div>
+                    </div>
+
+                    <div class="remediation-box">
+                        <p style="font-weight: 700; margin-bottom: 2px;">Recommendation</p>
+                        Use parameterized queries or ORMs. Sanitize all user inputs.
+                    </div>
+                </div>
+            </div>
+            
+            <div class="vuln-card" style="border-left: 4px solid var(--color-critical);">
+                <div class="vuln-header">
+                    <div>
+                        <span class="vuln-title">SQL INJECTION</span>
+                        
+                    </div>
+                    <div>
+                        
+                        <span class="severity-badge sev-critical">CRITICAL</span>
+                    </div>
+                </div>
+
+                <div class="vuln-body">
+                    
+                    
+                    <p style="font-weight: 500; font-size: 1rem; color: var(--color-text-primary); margin-bottom: var(--space-4);">Attackers can extract user credentials, emails, and session tokens from the database, or manipulate data via blind or union-based injection.</p>
+
+                    <div class="meta-grid">
+                        <div class="meta-item">
+                            <div class="label">Affected Endpoint</div>
+                            <div class="value">GET /</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="label">Vulnerable Parameter</div>
+                            <div class="value" style="font-family: monospace; color: var(--color-critical);">N/A</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="label">Confidence Score (TENTATIVE)</div>
+                            <div class="value">
+                                10%
+                                <div class="confidence-bar-container">
+                                    <div class="confidence-bar-fill" style="width: 10%; background: var(--color-info)"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="label">Standards & Mapping</div>
+                            <div class="value">CWE-89 | A03:2021</div>
+                        </div>
+                    </div>
+
+                    <div class="evidence-grid">
+                        <div>
+                            <p style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Reproduction Payload</p>
+                            <div class="code-block">N/A</div>
+                        </div>
+                        <div>
+                            <p style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Verification Evidence</p>
+                            <div class="code-block">N/A</div>
+                        </div>
+                    </div>
+
+                    <div class="remediation-box">
+                        <p style="font-weight: 700; margin-bottom: 2px;">Recommendation</p>
+                        Use parameterized queries or ORMs. Sanitize all user inputs.
+                    </div>
+                </div>
+            </div>
+            
+            <div class="vuln-card" style="border-left: 4px solid var(--color-critical);">
+                <div class="vuln-header">
+                    <div>
+                        <span class="vuln-title">SQL INJECTION</span>
+                        
+                    </div>
+                    <div>
+                        
+                        <span class="severity-badge sev-critical">CRITICAL</span>
+                    </div>
+                </div>
+
+                <div class="vuln-body">
+                    
+                    
+                    <p style="font-weight: 500; font-size: 1rem; color: var(--color-text-primary); margin-bottom: var(--space-4);">Attackers can extract user credentials, emails, and session tokens from the database, or manipulate data via blind or union-based injection.</p>
+
+                    <div class="meta-grid">
+                        <div class="meta-item">
+                            <div class="label">Affected Endpoint</div>
+                            <div class="value">GET /</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="label">Vulnerable Parameter</div>
+                            <div class="value" style="font-family: monospace; color: var(--color-critical);">N/A</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="label">Confidence Score (TENTATIVE)</div>
+                            <div class="value">
+                                10%
+                                <div class="confidence-bar-container">
+                                    <div class="confidence-bar-fill" style="width: 10%; background: var(--color-info)"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="label">Standards & Mapping</div>
+                            <div class="value">CWE-89 | A03:2021</div>
+                        </div>
+                    </div>
+
+                    <div class="evidence-grid">
+                        <div>
+                            <p style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Reproduction Payload</p>
+                            <div class="code-block">N/A</div>
+                        </div>
+                        <div>
+                            <p style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Verification Evidence</p>
+                            <div class="code-block">N/A</div>
+                        </div>
+                    </div>
+
+                    <div class="remediation-box">
+                        <p style="font-weight: 700; margin-bottom: 2px;">Recommendation</p>
+                        Use parameterized queries or ORMs. Sanitize all user inputs.
+                    </div>
+                </div>
+            </div>
+            
+            <div class="vuln-card" style="border-left: 4px solid var(--color-critical);">
+                <div class="vuln-header">
+                    <div>
+                        <span class="vuln-title">SQL INJECTION</span>
+                        
+                    </div>
+                    <div>
+                        
+                        <span class="severity-badge sev-critical">CRITICAL</span>
+                    </div>
+                </div>
+
+                <div class="vuln-body">
+                    
+                    
+                    <p style="font-weight: 500; font-size: 1rem; color: var(--color-text-primary); margin-bottom: var(--space-4);">Attackers can extract user credentials, emails, and session tokens from the database, or manipulate data via blind or union-based injection.</p>
+
+                    <div class="meta-grid">
+                        <div class="meta-item">
+                            <div class="label">Affected Endpoint</div>
+                            <div class="value">GET /</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="label">Vulnerable Parameter</div>
+                            <div class="value" style="font-family: monospace; color: var(--color-critical);">N/A</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="label">Confidence Score (TENTATIVE)</div>
+                            <div class="value">
+                                10%
+                                <div class="confidence-bar-container">
+                                    <div class="confidence-bar-fill" style="width: 10%; background: var(--color-info)"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="label">Standards & Mapping</div>
+                            <div class="value">CWE-89 | A03:2021</div>
+                        </div>
+                    </div>
+
+                    <div class="evidence-grid">
+                        <div>
+                            <p style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Reproduction Payload</p>
+                            <div class="code-block">N/A</div>
+                        </div>
+                        <div>
+                            <p style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Verification Evidence</p>
+                            <div class="code-block">N/A</div>
+                        </div>
+                    </div>
+
+                    <div class="remediation-box">
+                        <p style="font-weight: 700; margin-bottom: 2px;">Recommendation</p>
+                        Use parameterized queries or ORMs. Sanitize all user inputs.
+                    </div>
+                </div>
+            </div>
+            </div>
+                    </section>
+                    
+                </section>
+
+                <div class="footer">
+                    BREAKPOINT AUDIT ENGINE | BRK-20260312211204 | 2026-03-12 21:12:04
+                </div>
+            </div>
+        </body>
+        </html>
+        

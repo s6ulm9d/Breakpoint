@@ -125,7 +125,8 @@ class ProfessionalReportBuilder:
         total = len(self.results)
         vulnerable = len([r for r in self.results if r.status in ["VULNERABLE", "CONFIRMED"]])
         skipped = len([r for r in self.results if r.status == "SKIPPED"])
-        secure = total - vulnerable - skipped
+        inconclusive = len([r for r in self.results if r.status in ["INCONCLUSIVE", "ERROR", "BLOCKED"]])
+        secure = total - vulnerable - skipped - inconclusive
         
         line = "=" * 60
         summary = [
@@ -144,9 +145,9 @@ class ProfessionalReportBuilder:
             summary.append(f"{Fore.RED}[!] CRITICAL FINDINGS:{Style.RESET_ALL}")
             for r in critical_findings:
                 # Add impact note if available or a standard one
-                impact = "Security Compromise"
-                if "jwt" in r.type.lower(): impact = "Authentication bypass, allowing attackers to forge identities."
-                summary.append(f" - [{r.type.upper()}] {impact}")
+                impact = r.description or "Security Compromise"
+                if "jwt" in r.type.lower() and not r.description: impact = "Authentication bypass, allowing attackers to forge identities."
+                summary.append(f" - [{r.type.upper()}] (Location: {r.method} {r.endpoint}, Param: {r.parameter}) {impact}")
         
         summary.append(f"{Fore.WHITE}{line}{Style.RESET_ALL}")
         return "\n".join(summary)
@@ -375,8 +376,8 @@ class ExploitDocumentationGenerator:
             f"{Fore.WHITE}CONFIDENCE:    {Style.RESET_ALL}{result.confidence}",
             "",
             f"{Fore.YELLOW}ATTACK LOCATION:{Style.RESET_ALL}",
-            f" Endpoint:  Dynamic Discovery Layer",
-            f" Parameter: {result.attack_id or 'Injected Resource'}",
+            f" Endpoint:  {result.method} {result.endpoint}",
+            f" Parameter: {result.parameter or 'N/A'}",
             "",
             f"{Fore.YELLOW}TECHNICAL SUMMARY:{Style.RESET_ALL}",
             f" {result.description or result.details}",

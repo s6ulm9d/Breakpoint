@@ -23,16 +23,29 @@ from .core.logic import ConfidenceEngine, RiskScoringEngine, EvidenceCollector
 # IMPACT MAPPING: Translate technical findings to enterprise-grade metadata
 ATTACK_METADATA = {
     "sql_injection": {"severity": "CRITICAL", "cwe": "CWE-89", "owasp": "A03:2021", "remediation": "Use parameterized queries or ORMs. Sanitize all user inputs."},
+    "sqli_blind_time": {"severity": "CRITICAL", "cwe": "CWE-89", "owasp": "A03:2021", "remediation": "Use parameterized queries. Avoid string concatenation in database queries."},
     "nosql_injection": {"severity": "CRITICAL", "cwe": "CWE-943", "owasp": "A03:2021", "remediation": "Use safe API methods for NoSQL databases and avoid string concatenation in queries."},
+    "nosql_injection_login": {"severity": "CRITICAL", "cwe": "CWE-943", "owasp": "A03:2021", "remediation": "Use typed query builders; reject keys containing $."},
     "rce": {"severity": "CRITICAL", "cwe": "CWE-94", "owasp": "A03:2021", "remediation": "Avoid sensitive functions like eval(). Use strict allow-lists for OS command arguments."},
+    "rce_reverse_shell_attempt": {"severity": "INFO", "cwe": "CWE-94", "owasp": "A03:2021", "remediation": "Sandbox containers; block outbound connections."},
+    "rce_shell_shock": {"severity": "CRITICAL", "cwe": "CWE-78", "owasp": "A03:2021", "remediation": "Patch Bash to 4.3+; disable CGI if not used."},
+    "rce_params_post": {"severity": "CRITICAL", "cwe": "CWE-78", "owasp": "A03:2021", "remediation": "Avoid exec()/system(); use allowlists for OS command args."},
     "lfi": {"severity": "HIGH", "cwe": "CWE-22", "owasp": "A01:2021", "remediation": "Use absolute paths or map IDs to files. Validate path traversals like '../'."},
+    "lfi_path_traversal": {"severity": "HIGH", "cwe": "CWE-22", "owasp": "A01:2021", "remediation": "Validate filenames against path traversal before file system access."},
     "ssrf": {"severity": "HIGH", "cwe": "CWE-918", "owasp": "A10:2021", "remediation": "Use allow-lists for internal requests. Disable unused protocols (file://, dict://)."},
-    "xss": {"severity": "MEDIUM", "cwe": "CWE-79", "owasp": "A03:2021", "remediation": "Use Context-Aware output encoding. Implement a strong Content Security Policy (CSP)."},
+    "xss": {"severity": "HIGH", "cwe": "CWE-79", "owasp": "A03:2021", "remediation": "Use Context-Aware output encoding. Implement a strong Content Security Policy (CSP)."},
+    "xss_reflected": {"severity": "HIGH", "cwe": "CWE-79", "owasp": "A03:2021", "remediation": "Use context-aware output encoding for all reflected inputs."},
     "idor": {"severity": "HIGH", "cwe": "CWE-639", "owasp": "A01:2021", "remediation": "Implement object-level access control. Use non-predictable identifiers (UUIDs)."},
     "jwt_weakness": {"severity": "HIGH", "cwe": "CWE-345", "owasp": "A07:2021", "remediation": "Use strong signing algorithms (RS256). Verify all claims and signature integrity."},
+    "jwt_none_alg": {"severity": "CRITICAL", "cwe": "CWE-345", "owasp": "A07:2021", "remediation": "Explicitly reject tokens using 'none' algorithm in JWT header."},
+    "jwt_weak_key_brute": {"severity": "HIGH", "cwe": "CWE-345", "owasp": "A07:2021", "remediation": "Use RS256; store secrets in secrets manager."},
     "brute_force": {"severity": "MEDIUM", "cwe": "CWE-307", "owasp": "A07:2021", "remediation": "Implement account lockouts and rate limiting. Enforce multi-factor authentication (MFA)."},
-    "cve_log4shell": {"severity": "CRITICAL", "cwe": "CWE-502", "owasp": "A06:2021", "remediation": "Patch Log4j to version 2.17.1+. Disable remote JNDI lookups."},
-    "cve_spring4shell": {"severity": "CRITICAL", "cwe": "CWE-94", "owasp": "A03:2021", "remediation": "Patch Spring Framework and move to modern Tomcat versions (>9.0.62)."},
+    "brute_force_basic": {"severity": "LOW", "cwe": "CWE-307", "owasp": "A07:2021", "remediation": "Enforce strong password policies and rate-limit authentication attempts."},
+    "cve_log4shell": {"severity": "MEDIUM", "cwe": "CWE-502", "owasp": "A06:2021", "remediation": "Patch Log4j to version 2.17.1+. Disable remote JNDI lookups."},
+    "log4shell": {"severity": "MEDIUM", "cwe": "CWE-502", "owasp": "A06:2021", "remediation": "Patch Log4j to version 2.17.1+. Disable remote JNDI lookups."},
+    "log4shell_recursive_delete": {"severity": "MEDIUM", "cwe": "CWE-502", "owasp": "A06:2021", "remediation": "Patch to Log4j 2.17.1+; disable JNDI lookups."},
+    "cve_spring4shell": {"severity": "MEDIUM", "cwe": "CWE-94", "owasp": "A03:2021", "remediation": "Patch Spring Framework and move to modern Tomcat versions (>9.0.62)."},
+    "spring4shell": {"severity": "MEDIUM", "cwe": "CWE-94", "owasp": "A03:2021", "remediation": "Confirm exploitability via OOB callback; update Spring Framework."},
     "open_redirect": {"severity": "LOW", "cwe": "CWE-601", "owasp": "A01:2021", "remediation": "Use allow-lists for redirection targets. Prefer relative URLs."},
     "union_sqli": {"severity": "CRITICAL", "cwe": "CWE-89", "owasp": "A03:2021", "remediation": "Use parameterized queries. Avoid reflecting data in UNION SELECT."},
     "second_order_sqli": {"severity": "CRITICAL", "cwe": "CWE-89", "owasp": "A03:2021", "remediation": "Validate data at both input and point of use in queries."},
@@ -41,7 +54,9 @@ ATTACK_METADATA = {
     "dom_xss": {"severity": "MEDIUM", "cwe": "CWE-79", "owasp": "A03:2021", "remediation": "Use safe DOM sinks (textContent) instead of innerHTML/eval."},
     "mutation_xss": {"severity": "MEDIUM", "cwe": "CWE-79", "owasp": "A03:2021", "remediation": "Use modern sanitizers that handle browser parsing quirks."},
     "csrf": {"severity": "MEDIUM", "cwe": "CWE-352", "owasp": "A01:2021", "remediation": "Implement anti-CSRF tokens or use SameSite=Strict cookies."},
-    "csti": {"severity": "MEDIUM", "cwe": "CWE-94", "owasp": "A03:2021", "remediation": "Avoid reflecting user input inside template delimiters."},
+    "csti": {"severity": "CRITICAL", "cwe": "CWE-94", "owasp": "A03:2021", "remediation": "Avoid reflecting user input inside template delimiters."},
+    "ssti_template_injection": {"severity": "CRITICAL", "cwe": "CWE-94", "owasp": "A03:2021", "remediation": "Never pass user input to render_template_string(); use static templates."},
+    "exotic_injection_template": {"severity": "CRITICAL", "cwe": "CWE-94", "owasp": "A03:2021", "remediation": "Never pass user input to template rendering engines; use static templates."},
     "mass_assignment": {"severity": "HIGH", "cwe": "CWE-915", "owasp": "A01:2021", "remediation": "Use DTOs or explicit allow-lists for model updates."},
     "tenant_isolation": {"severity": "CRITICAL", "cwe": "CWE-639", "owasp": "A01:2021", "remediation": "Enforce strict tenant boundary checks at the data layer."},
     "oauth_redirect": {"severity": "HIGH", "cwe": "CWE-601", "owasp": "A01:2021", "remediation": "Validate OAuth redirect URIs against a strict allow-list."},
@@ -50,31 +65,87 @@ ATTACK_METADATA = {
     "null_byte": {"severity": "HIGH", "cwe": "CWE-158", "owasp": "A03:2021", "remediation": "Strip null bytes and use safe file handling APIs."},
     "archive_bomb": {"severity": "HIGH", "cwe": "CWE-409", "owasp": "A04:2021", "remediation": "Limit zip extraction size and depth. Use safe decompression libraries."},
     "cswsh": {"severity": "HIGH", "cwe": "CWE-1385", "owasp": "A01:2021", "remediation": "Validate the Origin header during WebSocket handshakes."},
-    "request_smuggling": {"severity": "CRITICAL", "cwe": "CWE-444", "owasp": "A06:2021", "remediation": "Use HTTP/2 entirely or ensure frontend/backend agree on TE/CL parsing."},
+    "request_smuggling": {"severity": "MEDIUM", "cwe": "CWE-444", "owasp": "A06:2021", "remediation": "Use HTTP/2 entirely or ensure frontend/backend agree on TE/CL parsing."},
+    "http_request_smuggling": {"severity": "MEDIUM", "cwe": "CWE-444", "owasp": "A06:2021", "remediation": "Standardize TE/CL parsing between frontend and backend."},
     "http_desync": {"severity": "HIGH", "cwe": "CWE-444", "owasp": "A06:2021", "remediation": "Disable connection reuse for ambiguous requests."},
     "jndi_injection": {"severity": "CRITICAL", "cwe": "CWE-917", "owasp": "A03:2021", "remediation": "Disable JNDI lookups or remove the JNDI lookup class from the classpath."},
-    "race_condition": {"severity": "HIGH", "cwe": "CWE-362", "owasp": "A01:2021", "remediation": "Use database transactions with proper isolation levels (Serializable) or distributed locks."},
+    "race_condition": {"severity": "HIGH", "cwe": "CWE-362", "owasp": "A01:2021", "remediation": "Concurrent requests on shared resource — enables double-spend, coupon reuse, duplicate order attacks."},
     "graphql_batching": {"severity": "MEDIUM", "cwe": "CWE-770", "owasp": "A04:2021", "remediation": "Disable batching or limit query complexity/depth."},
     "xpath_injection": {"severity": "HIGH", "cwe": "CWE-91", "owasp": "A03:2021", "remediation": "Use parameterized XPath queries or pre-compiled path expressions."},
+    "xpath_injection_xml": {"severity": "HIGH", "cwe": "CWE-91", "owasp": "A03:2021", "remediation": "Use parameterized XPath queries or pre-compiled path expressions."},
     "ldap_injection": {"severity": "HIGH", "cwe": "CWE-90", "owasp": "A03:2021", "remediation": "Escape LDAP filter characters or use framework-provided safe search methods."},
+    "ldap_injection_search": {"severity": "HIGH", "cwe": "CWE-90", "owasp": "A03:2021", "remediation": "Escape LDAP filter characters or use framework-provided safe search methods."},
     "zip_slip": {"severity": "HIGH", "cwe": "CWE-22", "owasp": "A01:2021", "remediation": "Validate filenames in archives against path traversal before extraction."},
+    "xxe": {"severity": "HIGH", "cwe": "CWE-611", "owasp": "A03:2021", "remediation": "Disable DTD processing and external entity resolution in XML parsers."},
+    "xxe_external_entity": {"severity": "HIGH", "cwe": "CWE-611", "owasp": "A03:2021", "remediation": "Disable external entity processing; set FEATURE_EXTERNAL_GENERAL_ENTITIES=false."},
+    "crlf_injection": {"severity": "MEDIUM", "cwe": "CWE-93", "owasp": "A03:2021", "remediation": "Strip \\r\\n from any input reflected into headers."},
+    "ssi_injection": {"severity": "HIGH", "cwe": "CWE-97", "owasp": "A03:2021", "remediation": "Disable SSI in web server config (Options -Includes)."},
+    "email_header_injection": {"severity": "MEDIUM", "cwe": "CWE-93", "owasp": "A03:2021", "remediation": "Strip CRLF characters from all email header inputs."},
+    "react_server_component_injection": {"severity": "HIGH", "cwe": "CWE-94", "owasp": "A03:2021", "remediation": "Validate RSC flight data server-side."},
+    "deserialization_rce": {"severity": "CRITICAL", "cwe": "CWE-502", "owasp": "A08:2021", "remediation": "Never deserialize untrusted data; replace with JSON."},
+    "file_upload_shell": {"severity": "CRITICAL", "cwe": "CWE-434", "owasp": "A01:2021", "remediation": "Validate by magic bytes; store uploads outside web root."},
+    "password_length_dos": {"severity": "MEDIUM", "cwe": "CWE-770", "owasp": "A04:2021", "remediation": "Cap password length at 72–128 chars server-side before hashing."},
+    "debug_exposure": {"severity": "HIGH", "cwe": "CWE-215", "owasp": "A05:2021", "remediation": "Remove from prod; IP-allowlist /admin; block /.env at web server."},
+    "secret_leak_scan": {"severity": "HIGH", "cwe": "CWE-798", "owasp": "A07:2021", "remediation": "Rotate any exposed secrets; scan git history."},
+    "clickjacking_check": {"severity": "INFO", "cwe": "CWE-1021", "owasp": "A01:2021", "remediation": "System is already protected via X-Frame-Options. Informational only."},
+    "security_headers": {"severity": "INFO", "cwe": "N/A", "owasp": "A05:2021", "remediation": "Security headers are present. High-grade configuration confirmed."},
+    "cors_misconfiguration": {"severity": "MEDIUM", "cwe": "CWE-942", "owasp": "A01:2021", "remediation": "Explicit origin allowlist; never reflect Origin header."},
+    "host_header_injection": {"severity": "MEDIUM", "cwe": "CWE-116", "owasp": "A01:2021", "remediation": "Set ALLOWED_HOSTS in Django/Rails/Spring."},
+    "git_exposure_check": {"severity": "HIGH", "cwe": "CWE-527", "owasp": "A05:2021", "remediation": "Block /.git at web server level."},
+    "swagger_ui_exposure": {"severity": "MEDIUM", "cwe": "CWE-215", "owasp": "A05:2021", "remediation": "Disable Swagger in prod or require authentication."},
+    "env_exposure_check": {"severity": "HIGH", "cwe": "CWE-527", "owasp": "A05:2021", "remediation": "Block /.env; use a secrets manager."},
+    "phpinfo_exposure": {"severity": "MEDIUM", "cwe": "CWE-215", "owasp": "A05:2021", "remediation": "Remove phpinfo() from production."},
+    "ds_store_exposure": {"severity": "MEDIUM", "cwe": "CWE-527", "owasp": "A05:2021", "remediation": "Block /.DS_Store at web server; add to .gitignore."},
+    "struts2_rce": {"severity": "CRITICAL", "cwe": "CWE-20", "owasp": "A03:2021", "remediation": "Upgrade Struts2; patch Tomcat."},
+    "cache_poison_check": {"severity": "HIGH", "cwe": "CWE-444", "owasp": "A06:2021", "remediation": "Validate Host header; normalize cache keys."},
+    "hydration_collapse": {"severity": "MEDIUM", "cwe": "CWE-20", "owasp": "A03:2021", "remediation": "Validate RSC hydration data before rendering."},
+    "server_side_action_forge": {"severity": "HIGH", "cwe": "CWE-352", "owasp": "A01:2021", "remediation": "Validate server action IDs server-side."},
+    "auth_replay_check": {"severity": "MEDIUM", "cwe": "CWE-613", "owasp": "A07:2021", "remediation": "Implement token blocklist or short expiry with rotation."},
+    "malformed_json_check": {"severity": "LOW", "cwe": "CWE-20", "owasp": "A03:2021", "remediation": "Add JSON schema validation before processing."},
+    "redos_validation_attack": {"severity": "MEDIUM", "cwe": "CWE-1333", "owasp": "A04:2021", "remediation": "Audit regexes for catastrophic backtracking; use timeout limits."},
+    "otp_reuse_check": {"severity": "HIGH", "cwe": "CWE-287", "owasp": "A07:2021", "remediation": "Invalidate OTP after first use; enforce 30–60s expiry."},
 }
 
 ATTACK_IMPACTS = {
-    "sql_injection": "Unauthorized database access, data theft, and potential administrative takeover.",
-    "nosql_injection": "Authentication bypass and unauthorized document access.",
-    "rce": "Full system compromise. Attacker can execute arbitrary commands as the application user.",
-    "lfi": "Exposure of sensitive system files (/etc/passwd, configuration files) and potential RCE via log poisoning.",
-    "ssrf": "Internal network scanning and access to sensitive cloud metadata services.",
-    "xss": "Session hijacking, credential theft, and defacement of the application for users.",
-    "idor": "Unauthorized access to private user data, orders, or restricted administrative records.",
-    "jwt_weakness": "Authentication bypass, allowing attackers to forge identities.",
-    "mass_assignment": "Elevation of privilege by updating protected database fields.",
-    "tenant_isolation": "Cross-tenant data leakage in a multi-tenant environment.",
-    "header_security": "Increased susceptibility to Clickjacking and MIME-type sniffing attacks.",
-    "clickjacking": "Users can be tricked into performing unintended actions on the site.",
-    "open_redirect": "Phishing attacks by redirecting users to malicious domains.",
-    "prototype_pollution": "Potential RCE or logic bypass in JavaScript environments.",
+    "sql_injection": "Attackers can extract user credentials, emails, and session tokens from the database, or manipulate data via blind or union-based injection.",
+    "sqli_blind_time": "SQL Injection allowing attackers to access and exfiltrate database contents via time-based techniques.",
+    "nosql_injection": "Attackers can bypass authentication logic and gain unauthorized access to document-based data stores.",
+    "nosql_injection_login": "NoSQL injection in login flow allows authentication bypass.",
+    "rce": "Full system compromise. Attackers can execute arbitrary OS commands, install persistent backdoors, and pivot into the internal network.",
+    "lfi": "Improper path validation allows directory traversal and reading sensitive system files (/etc/passwd) or internal configuration.",
+    "lfi_path_traversal": "Improper path validation allows reading sensitive system files via directory traversal.",
+    "ssrf": "Attackers can trigger internal network scans and access sensitive cloud instance metadata (IMDS) or internal-only administration APIs.",
+    "xss": "Attackers can execute malicious scripts in user browsers to hijack sessions, steal CSRF tokens, or perform phishing attacks.",
+    "xss_reflected": "Reflected XSS allows script execution in the context of the user's session.",
+    "idor": "Direct object reference manipulation allows attackers to access private records, orders, or administrative data of other users.",
+    "jwt_weakness": "Authentication bypass via algorithm confusion or weak signature keys, allowing attackers to forge arbitrary user identities.",
+    "jwt_none_alg": "The 'none' algorithm is accepted in JWT, allowing attackers to forge valid tokens with arbitrary claims without a signature.",
+    "mass_assignment": "Elevation of privilege by injecting protected database fields during object updates.",
+    "tenant_isolation": "Cross-tenant data leakage, allowing one client to view or modify another client's isolated workspace data.",
+    "header_security": "Missing security headers (HSTS, CSP) increase susceptibility to Clickjacking, XSS, and MIME-type sniffing.",
+    "clickjacking": "Attackers can trick users into performing sensitive actions (e.g., deleting account) via hidden UI overlays.",
+    "open_redirect": "Users can be tricked into visiting malicious domains via trusted site redirection, facilitating sophisticated phishing.",
+    "prototype_pollution": "Manipulation of JavaScript object prototypes leading to property injection, logic bypass, or potential RCE.",
+    "xxe": "Potential XML External Entity processing allows attackers to read internal files or trigger SSRF requests via crafted XML input.",
+    "xxe_external_entity": "Potential XML External Entity processing allows attackers to read internal files or trigger SSRF requests via crafted XML input.",
+    "ldap_injection_search": "LDAP filter characters unsanitized — attacker can bypass authentication and enumerate directory entries",
+    "xpath_injection_xml": "User input embedded in XPath query — attacker can extract arbitrary XML data or bypass auth",
+    "cors_misconfiguration": "Origin header reflected without validation — enables cross-origin credential access",
+    "host_header_injection": "Host header not validated — password reset links and redirects can be hijacked",
+    "debug_exposure": "Admin, debug, actuator, .env, phpinfo, and config.json endpoints accessible without authentication",
+    "race_condition": "Concurrent requests on shared resource — enables double-spend, coupon reuse, duplicate order attacks",
+    "log4shell": "JNDI lookup payloads delivered to headers — check OOB server for callback confirmation",
+    "spring4shell": "Spring4Shell payload delivered — confirm exploitability via OOB callback",
+    "secret_leak_scan": "Potential credentials or tokens found in exposed responses — rotate immediately if confirmed",
+    "cache_poison_check": "Cache key may not normalize Host/headers — poisoned responses could be served to other users",
+    "malformed_json_check": "Malformed JSON accepted without error — parser may be lenient in ways exploitable for injection",
+    "auth_replay_check": "Auth token replayable after logout — no server-side invalidation detected",
+    "ssti_template_injection": "Server-Side Template Injection allows executing arbitrary code on the server via template expression evaluation.",
+    "exotic_injection_template": "Server-Side Template Injection allows executing arbitrary code on the server via template expression evaluation.",
+    "ssi_injection": "Server-Side Includes (SSI) Injection allows attackers to execute arbitrary code or access sensitive files on the server.",
+    "deserialization_rce": "Insecure deserialization allows Remote Code Execution (RCE) and full server compromise.",
+    "file_upload_shell": "Unrestricted file upload allows attackers to upload executable scripts, leading to Remote Code Execution (RCE).",
+    "struts2_rce": "Apache Struts 2 vulnerability allows Remote Code Execution via manipulating OGNL expressions."
 }
 
 import threading as _threading
@@ -108,6 +179,7 @@ class Engine:
         self.ai_analyzer = AIAnalyzer(verbose=verbose, forensic_log=self.logger)
         self.evidence_collector = EvidenceCollector()
         self.static_findings = []
+        self.sast_findings = []
         
         # Robust Localhost Detection for Engine
         self._is_localhost = any(x in self.base_url.lower() for x in ["localhost", "127.0.0.1", "0.0.0.0"])
@@ -224,49 +296,106 @@ class Engine:
         fingerprinter = TechFingerprinter(client)
         self.context = fingerprinter.fingerprint(self.base_url, self.context)
         
-        # Display detected tech stack
-        tech_summary = []
-        if self.context.tech_stack.languages:
-            tech_summary.append(f"Languages: {', '.join(self.context.tech_stack.languages)}")
-        if self.context.tech_stack.frameworks:
-            tech_summary.append(f"Frameworks: {', '.join(self.context.tech_stack.frameworks)}")
-        if self.context.tech_stack.servers:
-            tech_summary.append(f"Servers: {', '.join(self.context.tech_stack.servers)}")
-        if self.context.tech_stack.databases:
-            tech_summary.append(f"Databases: {', '.join(self.context.tech_stack.databases)}")
+        # Display detected tech stack with confidence
+        print(f"    -> Technology Identification:")
+        all_tech = sorted(self.context.tech_stack.confidence_scores.items(), key=lambda x: x[1], reverse=True)
+        for tech, score in all_tech:
+            # Categorize correctly
+            cat = fingerprinter._get_category(tech)
+            status = f"{Fore.GREEN}[CONFIRMED]{Style.RESET_ALL}" if score >= 0.8 else f"{Fore.YELLOW}[PROBABLE]{Style.RESET_ALL}"
+            if score >= 0.4:
+                print(f"       • {cat.capitalize()}: {tech.ljust(15)} {status} (Score: {score:.1f})")
         
-        if tech_summary:
-            print(f"    -> Tech Stack Identified:")
-            for item in tech_summary:
-                print(f"       • {item}")
-        else:
-            print(f"    -> Tech Stack: Unable to fingerprint (generic target)")
+        if not all_tech:
+            print(f"    -> Tech Stack: No definitive fingerprints identified (Passive Mode).")
         
-        # RUN ELITE STATIC ANALYSIS FIRST
+        # RUN STATIC ANALYSIS
         if self.static_analyzer:
-            print(f"[*] Starting Elite Static Analysis (SSA-based Taint Tracking)...")
+            print(f"[*] Starting Static Analysis Audit...")
             self.static_findings = self.static_analyzer.analyze()
             self.cpg_context = self.static_analyzer.get_cpg_summary()
-            print(f"    -> Static Analysis Complete: {len(self.static_findings)} flow patterns identified.")
-            if self.cpg_context:
-                print(f"    -> CPG Context Armed: Data-flow reasoning enabled.")
+            print(f"    -> Analysis Complete: {len(self.static_findings)} flow patterns identified.")
+        
+        # PHASE 2: AI REASONING (SAST)
+        if self.ai_analyzer and not Engine.SHUTDOWN_SIGNAL:
+            if self.source_path:
+                print(f"[*] PHASE 2: AI-Native Reasoning Engine (Source Enabled)...")
+                ai_findings = self.ai_analyzer.reason_about_project(self.source_path, getattr(self, 'cpg_context', None))
+                if ai_findings:
+                    print(f"    -> AI Reasoning Complete: {len(ai_findings)} structural vulnerabilities uncovered.")
+                    self.sast_findings = self._convert_ai_findings_to_results(ai_findings)
+                else:
+                    print(f"    -> AI Reasoning: No additional structural vulnerabilities identified.")
+            else:
+                print(f"[*] PHASE 2: AI-Native Reasoning Engine (Source Disabled)...")
+                print(f"    -> Deep mapping skipped. To enable, provide source path using --source.")
         
         crawler = Crawler(self.base_url, client)
-        print(f"    -> Starting recursive discovery (Max Depth: 3)...")
+        print(f"[*] PHASE 3: Target Endpoint Discovery...")
+        print(f"    -> Initializing recursive discovery (Max Depth: 3)...")
         crawler.crawl()
         new_targets = crawler.get_scan_targets()
-        print(f"    -> Discovery Complete: Found {len(new_targets)} unique endpoints/forms.")
+        print(f"    -> Discovery Complete: {len(new_targets)} unique endpoints identified.")
         
-        # Store discovered endpoints in context
+        # Store discovered endpoints in context and expand scenarios
+        CRITICAL_MODULES = ["sql_injection", "sqli_blind_time", "xss", "rce", "ssti", "lfi", "idor", "open_redirect"]
+        KEYWORD_PRIORITY = ["search", "api", "login", "query", "filter", "user", "order"]
+        
+        dynamic_scenarios = []
         for target in new_targets:
-            self.context.discovered_endpoints.append(target.get("url", ""))
-            if target.get("method") == "POST":
-                # Create a dynamic scenario if not already covered
-                pass
+            full_url = target.get("url", "/")
+            method = target.get("method", "GET").upper()
+            
+            # Normalize path to relative if possible for cleaner logic
+            path = full_url.replace(self.base_url, "")
+            if not path: path = "/"
+            
+            self.context.discovered_endpoints.append(path)
+            
+            # Get modules requested by user
+            requested_modules = set([getattr(s, 'attack_type', s.type) for s in scenarios])
+            
+            for mod in requested_modules:
+                if mod in CRITICAL_MODULES:
+                    # Priority check: if endpoint has keywords, or if it was discovered via JSON (likely API)
+                    # For now, we apply to any discovered endpoint if that module was requested
+                    exists = any(s.target == path and getattr(s, 'attack_type', s.type) == mod for s in scenarios)
+                    
+                    # Also check for absolute URL matches
+                    if not exists:
+                         exists = any(s.target == full_url and getattr(s, 'attack_type', s.type) == mod for s in scenarios)
+
+                    if not exists:
+                        from .scenarios import SimpleScenario
+                        # Add a targeted scenario
+                        fields = target.get("fields", []) or ["q", "id", "search", "user", "query", "email"]
+                        new_s = SimpleScenario(
+                            id=f"dyn_{mod}_{hashlib.md5(path.encode()).hexdigest()[:6]}",
+                            type="simple", attack_type=mod, target=path, method=method,
+                            config={"fields": fields, "aggressive": self.force_aggressive}
+                        )
+                        dynamic_scenarios.append(new_s)
+        
+        if dynamic_scenarios:
+            if self.verbose:
+                print(f"    -> Dynamic Expansion: Added {len(dynamic_scenarios)} targeted probes for discovered points.")
+            scenarios.extend(dynamic_scenarios)
+
+        # Smart Tech Stack Filtering
+        if hasattr(self, 'context') and hasattr(self.context, 'tech_stack'):
+            detected = [f.lower() for f in list(getattr(self.context.tech_stack, 'frameworks', [])) + list(getattr(self.context.tech_stack, 'servers', []))]
+            is_node_only = any(f in ["next.js", "node.js", "express", "react"] for f in detected) and not any(f in ["spring", "django", "laravel", "ruby", "php"] for f in detected)
+            if is_node_only:
+                incompatible = ["cve_log4shell", "log4shell", "log4shell_recursive_delete", "cve_spring4shell", "spring4shell", "cve_struts2", "struts2_rce", "phpinfo_exposure", "ssi_injection", "ldap_injection", "ldap_injection_search", "xpath_injection", "xpath_injection_xml"]
+                before_count = len(scenarios)
+                scenarios = [s for s in scenarios if getattr(s, 'attack_type', getattr(s, 'type', '')) not in incompatible]
+                filtered = before_count - len(scenarios)
+                if filtered > 0 and self.verbose:
+                    print(f"    -> [SMART FILTER] Node.js/Next.js environment detected. Filtered {filtered} incompatible checks (Java/PHP/XML/LDAP).")
 
         # Separate scenarios into standard and DoS
-        std_scenarios = [s for s in scenarios if not s.config.get("destructive", False)]
-        dos_scenarios = [s for s in scenarios if s.config.get("destructive", False)]
+        std_scenarios = [s for s in scenarios if not (hasattr(s, 'config') and s.config.get("destructive", False))]
+        dos_scenarios = [s for s in scenarios if hasattr(s, 'config') and s.config.get("destructive", False)]
 
         print(f"[*] STARTING ENGINE: {len(std_scenarios) + len(dos_scenarios)} active scenarios...")
 
@@ -554,6 +683,9 @@ class Engine:
             pass
             
         # SAVE SESSION FOR REPLAY
+        # Merge SAST findings into final results
+        results.extend(getattr(self, 'sast_findings', []))
+        
         session_file = self.replay_manager.save_session(results=results)
         if session_file and self.verbose:
             print(f"[*] Session recorded to: {session_file}")
@@ -826,21 +958,53 @@ class Engine:
             elif res_dict.get("skipped"): status = "INCONCLUSIVE"
             elif not res_dict.get("passed", True): status = "VULNERABLE"
             
+            conf_score = res_dict.get("confidence_score", 0.0)
+            if status in ["CONFIRMED", "VULNERABLE"] and conf_score < 0.1 and not res_dict.get("is_verified"):
+                status = "INCONCLUSIVE"
+                res_dict["details"] = "Possible signal detected but confidence is ~0% (filtered by Smart Engine)."
+            
             # Fetch Enterprise Metadata
             meta = ATTACK_METADATA.get(check_type, {"severity": "INFO", "cwe": "N/A", "owasp": "N/A", "remediation": "N/A"})
             
             # Create Production-Grade Result
+            # XXE Severity Override
+            severity = meta["severity"]
+            if check_type in ["xxe", "xxe_external_entity"]:
+                if res_dict.get("confidence") == "CONFIRMED" or "file read" in str(res_dict.get("details", "")).lower():
+                    severity = "HIGH"
+                else:
+                    severity = "MEDIUM"
+            elif status not in ["VULNERABLE", "CONFIRMED", "SUSPECT"]:
+                severity = "INFO"
+
+            # Extract parameter from verification message if not provided
+            param_val = res_dict.get("parameter") or getattr(s, 'parameter', None)
+            if not param_val:
+                import re
+                combined_msg = str(res_dict.get("verification_msg", "")) + " " + str(res_dict.get("details", ""))
+                match = re.search(r" in '([^']+)'", combined_msg)
+                param_val = match.group(1) if match else "N/A"
+
             result = CheckResult(
                 id=s.id,
                 type=check_type,
                 status=status,
-                severity=meta["severity"] if status in ["VULNERABLE", "CONFIRMED", "SUSPECT"] else "INFO",
+                severity=severity,
                 details=str(res_dict.get("details", "")),
+                description=ATTACK_IMPACTS.get(check_type, "Security Compromise"),
                 confidence=res_dict.get("confidence", "TENTATIVE"), 
                 cwe=meta["cwe"],
                 owasp=meta["owasp"],
-                remediation=meta["remediation"],
-                artifacts=res_dict.get("artifacts", [])
+                remediation=meta.get("remediation", "N/A"),
+                artifacts=res_dict.get("artifacts", []),
+                method=res_dict.get("method") or getattr(s, 'method', 'GET'),
+                endpoint=res_dict.get("endpoint") or getattr(s, 'target', getattr(s, 'path', '/')),
+                parameter=param_val,
+                auth_required=res_dict.get("auth_required") or getattr(s, 'auth', False),
+                # New Accuracy Fields
+                confidence_score=res_dict.get("confidence_score", 0.0),
+                verification_msg=res_dict.get("verification_msg", ""),
+                is_verified=(status == "CONFIRMED")
             )
             
             # --- ELITE SCORING PASS ---
@@ -1065,3 +1229,88 @@ class Engine:
                 print(f"\n {Fore.RED}{'Evidence:':<20}{Style.RESET_ALL} See Consolidated Elite Audit Report for precise exploit payloads.")
                 
                 print(f"{Fore.RED}" + "="*60 + f"{Style.RESET_ALL}\n")
+
+    def _convert_ai_findings_to_results(self, ai_findings: List[Dict[str, Any]]) -> List[CheckResult]:
+        """Converts raw AI reasoning output into standard CheckResult objects."""
+        results = []
+        for f in ai_findings:
+            # Generate a unique ID if not present
+            finding_id = f"AI-SAST-{hashlib.md5(f.get('title', '').encode()).hexdigest()[:6].upper()}"
+            
+            # Map severity to internal format
+            sev = f.get("severity", "MEDIUM").upper()
+            if "CRITICAL" in sev: sev = "CRITICAL"
+            elif "HIGH" in sev: sev = "HIGH"
+            elif "LOW" in sev: sev = "LOW"
+            else: sev = "MEDIUM"
+            
+            # Create the CheckResult
+            res = CheckResult(
+                id=finding_id,
+                type=f.get("title", "AI Reasoning Finding").lower().replace(" ", "_"),
+                status="CONFIRMED" if f.get("confidence", "").upper() == "CONFIRMED" else "SUSPECT",
+                severity=sev,
+                confidence=f.get("confidence", "POSSIBLE"),
+                description=f.get("description", ""),
+                details=f.get("taint_trace", "No detailed trace available."),
+                remediation=f.get("remediation", "Consult security best practices."),
+                cwe=f.get("cwe", "N/A"),
+                owasp=f.get("owasp", "N/A"),
+                attack_id=f"{f.get('file', 'Unknown')}:{f.get('lines', '0')}",
+                method="N/A (Static Analysis)",
+                endpoint=f.get("file", "/"),
+                parameter=f.get("parameter", "N/A"),
+                artifacts=[{
+                    "payload": f.get("poc", "No PoC available."),
+                    "response": f"Code Trace Identified:\n{f.get('taint_trace', 'N/A')}"
+                }]
+            )
+            results.append(res)
+        return results
+
+    def _is_duplicate(self, result: CheckResult) -> bool:
+        """Determines if a finding is already reported for the same endpoint + parameter + type."""
+        # Normalize endpoint and type for better matching
+        clean_endpoint = result.endpoint.split('?')[0] if result.endpoint else "/"
+        if clean_endpoint == "/" and hasattr(result, 'attack_id') and result.attack_id: 
+            # Fallback if endpoint wasn't properly assigned but attack_id exists
+            clean_endpoint = result.attack_id
+            
+        # Map sub-types back to core types for deduplication (e.g. sqli_blind_time -> sql_injection)
+        type_mapping = {
+            "sqli_blind_time": "sql_injection",
+            "union_sqli": "sql_injection",
+            "error_sqli": "sql_injection",
+            "time_sqli": "sql_injection",
+            "xss_reflected": "xss",
+            "reflected_xss": "xss",
+            "stored_xss": "xss",
+            "lfi_path_traversal": "lfi",
+            "dyn_sql_injection": "sql_injection",
+            "dyn_xss": "xss",
+            "dyn_lfi": "lfi",
+            "dyn_idor": "idor",
+            "dyn_ssti": "ssti"
+        }
+        
+        # Remove hashes like dyn_sql_injection_fe8611
+        core_type = result.type
+        for prefix, mapped in type_mapping.items():
+            if core_type.startswith(prefix):
+                core_type = mapped
+                break
+        
+        # Ensure we have a valid parameter
+        param = result.parameter if result.parameter and result.parameter != "N/A" else "global"
+        
+        # Create a unique hash for (endpoint, parameter, type)
+        # Using sorted key for multi-params
+        finding_hash = hashlib.md5(f"{clean_endpoint}:{param}:{core_type}".encode()).hexdigest()
+        
+        with self._cache_lock:
+            if finding_hash in self.findings_hashes:
+                if self.verbose:
+                    print(f"    -> [DEDUPE] Skipping redundant finding for {core_type} at {clean_endpoint} ({result.parameter})")
+                return True
+            self.findings_hashes.add(finding_hash)
+            return False

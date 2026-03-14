@@ -7,6 +7,7 @@ class TechStack:
     frameworks: Set[str] = field(default_factory=set) # e.g., 'React', 'Flask', 'Next.js'
     servers: Set[str] = field(default_factory=set) # e.g., 'nginx', 'apache'
     databases: Set[str] = field(default_factory=set)
+    confidence_scores: Dict[str, float] = field(default_factory=dict) # tech -> score (0.0 to 1.0)
 
 @dataclass
 class AuthDetails:
@@ -42,11 +43,17 @@ class TargetContext:
     # OOB Infrastructure (injected at runtime)
     oob_provider: Any = None 
 
-    def update_tech_stack(self, key: str, value: str):
-        if key == "language": self.tech_stack.languages.add(value)
-        elif key == "framework": self.tech_stack.frameworks.add(value)
-        elif key == "server": self.tech_stack.servers.add(value)
-        elif key == "database": self.tech_stack.databases.add(value)
+    def update_tech_stack(self, key: str, value: str, confidence: float = 1.0):
+        # Update existing score or set new one (additive logic could be used here)
+        existing = self.tech_stack.confidence_scores.get(value, 0.0)
+        self.tech_stack.confidence_scores[value] = max(existing, confidence)
+        
+        # Only add to active sets if confidence is high enough (0.8 threshold)
+        if self.tech_stack.confidence_scores[value] >= 0.8:
+            if key == "language": self.tech_stack.languages.add(value)
+            elif key == "framework": self.tech_stack.frameworks.add(value)
+            elif key == "server": self.tech_stack.servers.add(value)
+            elif key == "database": self.tech_stack.databases.add(value)
 
     def is_stack_present(self, tech: str) -> bool:
         tech = tech.lower()
