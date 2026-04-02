@@ -32,8 +32,8 @@ class StabilityMetrics:
     
     @property
     def is_unstable(self) -> bool:
-        """Target is unstable if failure rate > 30% or recent failures."""
-        if self.failure_rate > 0.3: 
+        """Target is unstable if failure rate > 60% or recent failures."""
+        if self.failure_rate > 0.6: 
             return True
         
         # Recent failure (within last 2 seconds)
@@ -132,16 +132,16 @@ class AdaptiveThrottler:
                 return True
             return False
 
-        # RULE: Skip EXTREME on dev always to prevent local crashes
+        # CAUTION: Skip EXTREME on dev always to prevent local crashes
         if intensity == PayloadIntensity.EXTREME:
             return True
         
-        # Rule 2: Skip HEAVY if unstable (Dev Only)
-        if intensity == PayloadIntensity.HEAVY and self.metrics.is_unstable:
+        # Rule 2: Skip HEAVY if unstable and heavily failing (Dev Only)
+        if intensity == PayloadIntensity.HEAVY and self.metrics.is_unstable and self.metrics.failure_rate > 0.7:
             return True
         
         # Rule 3: Skip MEDIUM if critically unstable (Dev Only)
-        if intensity == PayloadIntensity.MEDIUM and self.metrics.failure_rate > 0.7:
+        if intensity == PayloadIntensity.MEDIUM and self.metrics.failure_rate > 0.9:
             return True
         
         return False
@@ -193,15 +193,15 @@ class AdaptiveThrottler:
         
         Logic:
         - Failure rate < 10% → Reduce backoff (min 1.0)
-        - Failure rate 10-30% → Maintain backoff
-        - Failure rate > 30% → Increase backoff (max 10.0)
+        - Failure rate 10-60% → Maintain backoff
+        - Failure rate > 60% → Increase backoff (max 10.0)
         """
         failure_rate = self.metrics.failure_rate
         
         if failure_rate < 0.1:
             # Stable, reduce backoff
             self.backoff_multiplier = max(1.0, self.backoff_multiplier * 0.9)
-        elif failure_rate > 0.3:
+        elif failure_rate > 0.6:
             # Unstable, increase backoff
             self.backoff_multiplier = min(10.0, self.backoff_multiplier * 1.5)
         # else: maintain current backoff

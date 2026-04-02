@@ -1,4 +1,4 @@
-from .reporting import EliteHTMLReporter, StructuredReportGenerator, PremiumReportGenerator
+from .reporting import ProfessionalHTMLReporter, StructuredReportGenerator
 from .sarif_reporting import SarifReporter
 from .engine import Engine
 from .scenarios import load_scenarios, SimpleScenario, FlowScenario
@@ -8,7 +8,7 @@ from .safety_lock import SafetyLock
 from .forensics import ForensicLogger
 from .ai_analyzer import AIAnalyzer
 from .http_client import HttpClient
-from .licensing import check_access, get_denial_message, get_license_tier, login_flow, get_license_key, get_openai_key, save_openai_key
+from .licensing import get_openai_key, save_openai_key
 import argparse
 import sys
 import os
@@ -70,7 +70,7 @@ def handle_update():
         if resp.status_code == 200:
             data = resp.json()
             latest = data.get("tag_name", "Unknown")
-            current = "3.0.0-ELITE"
+            current = "3.0.0-PRO"
             print(f"[+] Latest Version: {latest}")
             print(f"[+] Current Version: {current}")
             if latest != current and latest != "Unknown":
@@ -115,7 +115,7 @@ def main():
     
     # 1. ROBUST SHORTHAND & COMMAND HANDLING
     if len(sys.argv) > 1:
-        skip_transformation = ["update", "--update", "--login", "--license-key", "--openai-key", "--version", "-v"]
+        skip_transformation = ["update", "--update", "--openai-key", "--version", "-v"]
         if sys.argv[1] in skip_transformation:
             if sys.argv[1] == "update" or sys.argv[1] == "--update":
                 handle_update()
@@ -138,9 +138,8 @@ def main():
         formatter_class=argparse.RawTextHelpFormatter
     )
     
-    parser.add_argument("-v", "--version", action="version", version="BREAKPOINT v3.0.0-ELITE")
+    parser.add_argument("-v", "--version", action="version", version="BREAKPOINT v3.0.0-PRO")
     parser.add_argument("--update", action="store_true", help="Check for updates")
-    parser.add_argument("--login", action="store_true", help="Connect your Breakpoint account")
     
     target_group = parser.add_argument_group("Targeting")
     target_group.add_argument("--base-url", help="Target URL")
@@ -155,9 +154,9 @@ def main():
     out_group = parser.add_argument_group("Reporting")
     out_group.add_argument("--json-report", help="Path to JSON output")
     out_group.add_argument("--html-report", help="Path to HTML Report") 
-    out_group.add_argument("--premium", action="store_true", help="Generate a premium, corporate-grade security report (Shannon format)")
-    out_group.add_argument("--report", action="store_true", help="Shorthand for --premium --html-report report.html")
+    out_group.add_argument("--text-report", help="Path to Plain Text Security Report (Shannon format)") 
     out_group.add_argument("--sarif-report", help="Path to SARIF output")
+    out_group.add_argument("--report", action="store_true", help="Display detailed professional audit report in CLI")
     
     conf_group = parser.add_argument_group("Configuration")
     conf_group.add_argument("--env", choices=["dev", "staging", "production"], help="Operational Environment (Mandatory for scans)")
@@ -169,7 +168,6 @@ def main():
     conf_group.add_argument("--verbose", action="store_true")
     conf_group.add_argument("--continuous", action="store_true")
     conf_group.add_argument("--interval", type=int, default=0)
-    parser.add_argument("--license-key", help="Specify subscription key")
     parser.add_argument("--openai-key", help="Set or update OpenAI API key for AI-driven project analysis")
     parser.add_argument("--ai-test", action="store_true", help="Run a diagnostic test of the AI subsystem")
     parser.add_argument("--replay", nargs="?", const="last", help="Replay a previous attack session (defaults to 'last')")
@@ -179,39 +177,6 @@ def main():
 
     if args.verbose:
         os.environ["BREAKPOINT_VERBOSE"] = "1"
-
-    # Handle shorthand --report flag
-    if args.report:
-        args.premium = True
-        if not args.html_report:
-            args.html_report = "report.html"
-
-    # Handle license key flag (Non-interactive activation)
-    if args.license_key:
-        os.environ["BREAKPOINT_LICENSE_KEY"] = args.license_key
-        if not args.base_url and not args.login:
-            from .licensing import VALIDATION_ENDPOINT, save_license_key, _get_cache_dir
-            print(f"[*] Activating with License Key...")
-            try:
-                resp = requests.get(
-                    VALIDATION_ENDPOINT,
-                    headers={"Authorization": f"Bearer {args.license_key}"},
-                    timeout=10
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    tier = data.get("type", data.get("tier", "FREE"))
-                    print(f"[+] Success! {tier} license activated and saved.")
-                    save_license_key(args.license_key)
-                    cache_file = os.path.join(_get_cache_dir(), "license_cache.json")
-                    if os.path.exists(cache_file): os.remove(cache_file)
-                    sys.exit(0)
-                else:
-                    print(f"[-] Validation failed: Status {resp.status_code}")
-                    sys.exit(1)
-            except Exception as e:
-                print(f"[-] Activation error: {e}")
-                sys.exit(1)
 
     # Handle OpenAI key flag
     if args.openai_key:
@@ -235,25 +200,11 @@ def main():
         sys.exit(0 if success else 1)
 
 
-    # 0. MANDATORY LOGIN CHECK
-    if args.login:
-        if login_flow():
-            sys.exit(0)
-        sys.exit(1)
+    pass
 
-    # Check if logged in
-    from .licensing import is_logged_in
-    if not is_logged_in():
-        print(f"\n{Fore.YELLOW}[!] LOGIN REQUIRED: Breakpoint requires a connected account.{Style.RESET_ALL}")
-        print("[!] Visit https://breakpoint-web-one.vercel.app to register.")
-        print("[!] Run 'breakpoint --login' to connect your account.")
-        if sys.stdin.isatty():
-             choice = input("\n[?] Would you like to log in now? (y/n): ").lower()
-             if choice == 'y':
-                 if login_flow():
-                     print("\n[+] Login successful. Please re-run your command.")
-                     sys.exit(0)
-        sys.exit(1)
+
+    pass
+
 
     if unknown:
         print(f"[!] Error: Unknown arguments detected: {unknown}")
@@ -267,15 +218,17 @@ def main():
         print(f"\n{Fore.RED}[!] Error: --env <dev|staging|production> is mandatory for scans.{Style.RESET_ALL}")
         sys.exit(1)
 
-    # 2. RUNTIME LICENSE ENFORCEMENT
-    if args.aggressive:
-        if not check_access("aggressive"):
-            print(get_denial_message("aggressive"))
+    # 1.5. ETHICAL SAFEGUARD CHECK
+    if args.base_url:
+        from .legal import is_target_authorized
+        if not is_target_authorized(args.base_url) and not args.force_live_fire:
+            print(f"\n{Fore.RED}[!] ETHICAL SAFEGUARD TRIGGERED: Target {args.base_url} is classified as restricted or critical infrastructure.{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}    Breakpoint refuses to scan .gov, .mil, .edu or known critical services without explicit overrides.{Style.RESET_ALL}")
+            print(f"    If you have explicit legal authorization, use the --force-live-fire flag to bypass this check.\n")
             sys.exit(1)
-    if args.env == "production":
-        if not check_access("production"):
-            print(get_denial_message("production"))
-            sys.exit(1)
+
+    # 2. RUNTIME CHECKS
+    pass
 
     # 3. EULA CHECK
     from .legal import has_accepted_eula, prompt_eula
@@ -306,13 +259,12 @@ def main():
  | |_) | | \ \| |____ / ____ \| . \ | |    | |__| |_| |_| |\  |  | |   
  |____/|_|  \_\______/_/    \_\_|\_\|_|     \____/|_____|_| \_|  |_|   
     """
-    print(f"{Fore.CYAN}{BANNER}")
-    print(f"{Fore.CYAN}    Breakpoint Security Audit Engine")
-    print(f"{Fore.CYAN}    Automated Vulnerability Research & Verification{Style.RESET_ALL}\n")
+    print(f"{Fore.RED}{BANNER}")
+    print(f"{Fore.RED}    Breakpoint Security Audit Engine")
+    print(f"{Fore.RED}    Automated Vulnerability Research & Verification{Style.RESET_ALL}\n")
 
     check_internet_connectivity()
-    tier = get_license_tier()
-    print(f"[*] LICENSE: {tier} EDITION")
+    print(f"[*] EDITION: PROFESSIONAL")
     
     # 0. Global API Key Requirement
     # openai_key already retrieved above
@@ -345,7 +297,7 @@ def main():
             sys.exit(1)
             
         target = session_data.get("target")
-        print(f" {Fore.CYAN}[*] Forensic Audit initialized (REPLAY MODE).{Style.RESET_ALL}")
+        print(f" {Fore.RED}[*] Forensic Audit initialized (REPLAY MODE).{Style.RESET_ALL}")
         
         engine = Engine(
             base_url=target, forensic_log=logger, 
@@ -365,16 +317,13 @@ def main():
             generate_json_report(results, args.json_report)
         if args.html_report:
             engine.html_report_path = args.html_report
-            # The HTML report logic remains in cli.py or triggered here
-            if args.premium:
-                PremiumReportGenerator(engine).generate(results, args.html_report)
-            else:
-                StructuredReportGenerator(engine).generate(results, args.html_report)
+            # Always use the professional report builder
+            StructuredReportGenerator(engine).generate(results, args.html_report)
         if args.sarif_report: SarifReporter(args.sarif_report).generate(results)
         
         sys.exit(0)
 
-    print(f" {Fore.CYAN}[*] Forensic Audit initialized.{Style.RESET_ALL}")
+    print(f" {Fore.RED}[*] Forensic Audit initialized.{Style.RESET_ALL}")
     print("-" * 60)
     
     app_data = get_app_data_dir()
@@ -481,7 +430,7 @@ def main():
                              ))
                 print(f"    [+] AI Phase: Dynamic Surface - Added {len(scenarios) - len([s for s in scenarios if not s.id.startswith('ai_')])} targeted scenarios.")
         else:
-             print(f"\n{Fore.CYAN}[*] URL-ONLY MODE: AI Analysis Disabled (No source path provided).{Style.RESET_ALL}")
+             print(f"\n{Fore.RED}[*] URL-ONLY MODE: AI Analysis Disabled (No source path provided).{Style.RESET_ALL}")
 
         # FINAL SELECTION SUMMARY
         if args.source:
@@ -489,10 +438,10 @@ def main():
                  print(f"\n {Fore.YELLOW}--- AI ANALYSIS SKIPPED/FAILED (FULL SCAN FALLBACK) ---{Style.RESET_ALL}")
                  print(f" {Fore.YELLOW}[!] Using all {len(selected_module_ids)} available modules as a safe baseline.{Style.RESET_ALL}")
              else:
-                 print(f"\n {Fore.CYAN}--- AI ANALYSIS COMPLETE ---{Style.RESET_ALL}")
+                 print(f"\n {Fore.RED}--- AI ANALYSIS COMPLETE ---{Style.RESET_ALL}")
                  print(f" AI has selected {Fore.YELLOW}{len(selected_module_ids)}{Style.RESET_ALL} relevant modules for this target:")
         else:
-             print(f"\n {Fore.CYAN}--- MODULE SELECTION ---{Style.RESET_ALL}")
+             print(f"\n {Fore.RED}--- MODULE SELECTION ---{Style.RESET_ALL}")
              print(f" {Fore.YELLOW}{len(selected_module_ids)}{Style.RESET_ALL} modules configured for execution:")
         
         sorted_modules = sorted(selected_module_ids) if selected_module_ids else []
@@ -552,6 +501,10 @@ def main():
         sys.exit(1)
 
     # SAFETY GATE
+    print("\n[*] Initiating Target Ownership Verification...")
+    safety_lock = SafetyLock(args.base_url)
+    safety_lock.enforce_owner_check(force_flag=args.force_live_fire)
+
     if args.aggressive or args.force_live_fire:
         if args.env == "production":
              print(f"\n{Fore.RED}" + "#"*60)
@@ -586,7 +539,7 @@ def main():
         if args.continuous:
              print(f"\n{Fore.YELLOW}=== ITERATION #{iteration} ==={Style.RESET_ALL}")
         try:
-            print(f" {Fore.CYAN}[*] TARGET:  {args.base_url}")
+            print(f" {Fore.RED}[*] TARGET:  {args.base_url}")
             print(f" [!] ENV:     {args.env.upper()}")
             print(f" [*] MODE:    {'SIMULATION' if args.simulation else 'EXECUTION'}")
             print(f" [+] ATTACKS: {len(scenarios)}\n")
@@ -601,14 +554,18 @@ def main():
         if args.html_report: engine.html_report_path = args.html_report
 
         reporter = ConsoleReporter()
-        reporter.print_report_links(engine, results)
+        if args.report:
+            reporter.print_professional_report(engine, results)
+        else:
+            reporter.print_report_links(engine, results)
         forensic_meta = {"run_id": integrity["run_id"], "final_hash": integrity["final_hash"], "signature": integrity["signature"], "target": args.base_url, "iteration": iteration}
         if args.json_report: generate_json_report(results, args.json_report)
         if args.html_report:
-            if args.premium:
-                PremiumReportGenerator(engine).generate(results, args.html_report)
-            else:
-                StructuredReportGenerator(engine).generate(results, args.html_report)
+            from .reporting.generator import StructuredReportGenerator
+            StructuredReportGenerator(engine).generate(results, args.html_report)
+        if args.text_report:
+            from .reporting.shannon_text import ShannonTextReporter
+            ShannonTextReporter(engine).generate(results, args.text_report)
         if args.sarif_report: SarifReporter(args.sarif_report).generate(results)
         if not args.continuous: break
         if args.interval > 0: import time; time.sleep(args.interval)

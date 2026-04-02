@@ -415,9 +415,9 @@ class HttpClient:
             try:
                 # Dynamic Read Timeout
                 if self._is_localhost:
-                    # LOCALHOST: Ultra fast timeouts (1s connect, 15s read)
+                    # LOCALHOST: Ultra fast timeouts (1s connect, 90s read)
                     connect_timeout = 1.0
-                    read_timeout = 15.0
+                    read_timeout = 90.0
                 else:
                     # REMOTE: Robust but resilient (5s connect, 30s read)
                     connect_timeout = 5.0 if proxy_url else 3.0

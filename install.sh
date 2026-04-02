@@ -9,6 +9,19 @@ SOURCE_BINARY="./breakpoint"
 PYTHON_REQS="./requirements.txt"
 
 echo "[*] Breakpoint Installer"
+echo "[*] IMPORTANT: High-Performance Security Auditing involves significant responsibility."
+echo "[*] You must agree to the Breakpoint Ethical Use Agreement to proceed."
+echo ""
+echo "    1. I will only use Breakpoint on authorized targets."
+echo "    2. I will not target critical infrastructure (.gov, .mil, banks, hospitals)."
+echo "    3. I assume full legal responsibility for my actions."
+echo ""
+read -p "[?] Do you agree to these terms? (y/n): " choice
+if [ "$choice" != "y" ] && [ "$choice" != "Y" ]; then
+    echo "[-] Installation aborted. Ethical agreement not accepted."
+    exit 1
+fi
+echo "[+] Ethical Agreement Accepted."
 echo "[*] Checking environment..."
 
 # Check Python presence

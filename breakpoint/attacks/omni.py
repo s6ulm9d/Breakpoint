@@ -1623,6 +1623,43 @@ def run_password_length_dos(client: HttpClient, scenario: SimpleScenario) -> Dic
         artifacts.append({"request": f"POST {scenario.target} (100KB password)", "response": f"Time: {resp.elapsed_ms}ms"})
     return {"scenario_id": scenario.id, "attack_type": "password_length", "passed": not issues, "details": issues, "artifacts": artifacts}
 
+def run_missing_rate_limit(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
+    """Missing Rate Limit: Sending a rapid burst of requests to verify if target implements 429 Too Many Requests."""
+    burst_count = 50
+    if scenario.config.get("aggressive"):
+        burst_count = 150
+    
+    issues, artifacts = [], []
+    failed_requests = 0
+    success_requests = 0
+    
+    def fire_request():
+        nonlocal failed_requests, success_requests
+        try:
+            # We omit `is_canary=True` to hit their primary rate limiter rather than bypass it
+            resp = client.send(scenario.method, scenario.target, params={"_rnd": str(random.randint(1000, 9999))}, timeout=3.0)
+            if resp.status_code == 429:
+                failed_requests += 1 # They rate limited us, which is good
+            elif resp.status_code in [200, 201, 302, 401, 403]:
+                success_requests += 1 # Request went through without hitting 429
+            else:
+                failed_requests += 1 # Other generic server error (maybe WAF block which is also acceptable)
+        except:
+            failed_requests += 1 # Throttling or disconnect
+            
+    # Send a massive burst in parallel
+    with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
+        futures = [executor.submit(fire_request) for _ in range(burst_count)]
+        concurrent.futures.wait(futures, timeout=10.0)
+        
+    # If the vast majority of our requests went through without hitting a rate limit block
+    if success_requests > (burst_count * 0.8):
+        issues.append(f"Missing Rate Limit: Target permitted {success_requests} rapid requests in under 10 seconds without returning HTTP 429 or dropping connections.")
+        artifacts.append({"request": f"Burst of {burst_count} {scenario.method} requests", "response": "No rate limiting boundary reached."})
+        
+    status = "CONFIRMED" if issues else "SECURE"
+    return {"scenario_id": scenario.id, "attack_type": "missing_rate_limit", "passed": not issues, "status": status, "details": issues, "artifacts": artifacts, "confidence_score": 1.0}
+
 def run_replay_check(client: HttpClient, scenario: SimpleScenario) -> Dict[str, Any]:
     """Simple Auth Replay: Checking if same request works twice without nonce/timestamp change."""
     resp1 = client.send(scenario.method, scenario.target, json_body=scenario.config.get("json_body"))
