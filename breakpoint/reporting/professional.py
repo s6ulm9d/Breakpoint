@@ -96,7 +96,7 @@ class ProfessionalReportBuilder:
 
     def _section_header(self, num: int, title: str) -> str:
         line = "=" * 80
-        return f"\n{Fore.CYAN}{line}\nSECTION {num}: {title}\n{line}{Style.RESET_ALL}"
+        return f"\n{Fore.RED}{line}\nSECTION {num}: {title}\n{line}{Style.RESET_ALL}"
 
     def _build_executive_summary(self) -> str:
         risk_level = self._calculate_overall_risk()
@@ -475,8 +475,8 @@ class ReportDistributionEngine:
 
         block = [
             f"{Fore.GREEN}[+] LOCAL ACCESS LINKS:{Style.RESET_ALL}",
-            f" HTML Report: {Fore.CYAN}{local_html_link}{Style.RESET_ALL}",
-            f" JSON Data:   {Fore.CYAN}{local_json_path}{Style.RESET_ALL}",
+            f" HTML Report: {Fore.RED}{local_html_link}{Style.RESET_ALL}",
+            f" JSON Data:   {Fore.RED}{local_json_path}{Style.RESET_ALL}",
             "",
             f"{Fore.WHITE}[!] NOTE: HTML report link available if supported by terminal emulator.{Style.RESET_ALL}"
         ]

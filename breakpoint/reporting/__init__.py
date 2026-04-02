@@ -4,7 +4,7 @@ import datetime
 from typing import List
 from colorama import Fore, Style, init
 from ..models import CheckResult
-from .generator import StructuredReportGenerator
+from .generator import ProfessionalReportGenerator as StructuredReportGenerator
 from .professional import ProfessionalReportBuilder
 from .premium import PremiumReportGenerator
 
@@ -63,7 +63,7 @@ def generate_json_report(results, filename):
     data = [{"id": r.id, "type": r.type, "status": r.status, "severity": r.severity} for r in results]
     with open(filename, 'w') as f: json.dump(data, f, indent=2)
 
-class EliteHTMLReporter:
+class ProfessionalHTMLReporter:
     """State-of-the-Art HTML Reporting Engine consolidated into the reporting hub."""
     def __init__(self, target_url: str):
         self.target_url = target_url
@@ -85,7 +85,7 @@ class EliteHTMLReporter:
             artifacts_html = ""
             if hasattr(r, 'artifacts') and r.artifacts:
                 artifacts_html += "<div class='evidence-section'>"
-                artifacts_html += "<h4 style='color:#a855f7; margin-bottom:15px; font-size:1.1em;'>⚡ EXPLOITATION EVIDENCE & PAYLOAD PROOF</h4>"
+                artifacts_html += "<h4 style='color:var(--accent); margin-bottom:15px; font-size:1.1em;'>⚡ EXPLOITATION EVIDENCE & PAYLOAD PROOF</h4>"
                 for idx, art in enumerate(r.artifacts):
                     req = art.get('request', 'N/A')
                     res = art.get('response', 'N/A')
@@ -120,7 +120,7 @@ class EliteHTMLReporter:
                     <div class="severity-badge" style="background:{severity_color}22; color:{severity_color}; border: 1px solid {severity_color}44;">{r.severity}</div>
                 </div>
                 <div class="finding-body">
-                    <p style="color:#94a3b8; font-size:1.1em; margin-bottom:20px;">{description}</p>
+                    <p style="color:var(--text-dim); font-size:1.1em; margin-bottom:20px;">{description}</p>
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; margin-bottom:25px;">
                         <div class="meta-item"><b>STATUS:</b> <span style="color:#fff;">{r.status}</span></div>
                         <div class="meta-item"><b>CONFIDENCE:</b> <span style="color:#fff;">{r.confidence}</span></div>
@@ -129,10 +129,10 @@ class EliteHTMLReporter:
                     </div>
                     
                     <div class="remediation-box">
-                        <div style="color:#a855f7; font-weight:bold; margin-bottom:8px; display:flex; align-items:center;">
+                        <div style="color:var(--accent); font-weight:bold; margin-bottom:8px; display:flex; align-items:center;">
                             <span style="margin-right:8px;">🛠️</span> REMEDIATION STRATEGY
                         </div>
-                        <p style="margin:0; font-size:0.95em; color:#cbd5e1;">{r.remediation}</p>
+                        <p style="margin:0; font-size:0.95em; color:var(--text-main);">{r.remediation}</p>
                     </div>
 
                     {artifacts_html}
@@ -145,16 +145,16 @@ class EliteHTMLReporter:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BreakPoint Elite Audit - {self.target_url}</title>
+    <title>BreakPoint Professional Audit - {self.target_url}</title>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {{
-            --bg: #050508;
-            --card-bg: #0c0c14;
-            --accent: #a855f7;
-            --text-main: #e2e8f0;
-            --text-dim: #94a3b8;
-            --border: #1e1e2e;
+            --bg: #2B1B3D; /* Deep calm purple */
+            --card-bg: #3B2A50; /* Slightly lighter purple card */
+            --accent: #FF6F61; /* Vibrant orangey-red coral */
+            --text-main: #FDF9FF; 
+            --text-dim: #D4C4E1;
+            --border: #533E6D;
         }}
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{ 
@@ -163,7 +163,7 @@ class EliteHTMLReporter:
             font-family: 'Plus Jakarta Sans', sans-serif; 
             padding: 50px 10%; 
             line-height: 1.6;
-            background-image: radial-gradient(circle at 50% -20%, #a855f715, transparent);
+            background-image: radial-gradient(circle at 50% -20%, rgba(255, 111, 97, 0.15), transparent);
         }}
         .header {{ 
             display: flex; 
@@ -192,15 +192,15 @@ class EliteHTMLReporter:
         
         .finding-body {{ padding: 35px; }}
         .meta-item {{ font-size: 0.9rem; color: var(--text-dim); }}
-        .remediation-box {{ background: rgba(168, 85, 247, 0.05); border: 1px solid rgba(168, 85, 247, 0.15); padding: 20px; border-radius: 12px; margin-bottom: 30px; }}
+        .remediation-box {{ background: rgba(255, 111, 97, 0.05); border: 1px solid rgba(255, 111, 97, 0.15); padding: 20px; border-radius: 12px; margin-bottom: 30px; }}
         
         .evidence-section {{ margin-top: 30px; padding-top: 30px; border-top: 1px dashed var(--border); }}
-        .artifact-card {{ background: #08080c; border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }}
-        .artifact-header {{ font-size: 0.8rem; font-weight: 700; color: var(--accent); margin-bottom: 15px; border-bottom: 1px solid #1e1e2e; padding-bottom: 10px; }}
+        .artifact-card {{ background: #3B2A50; border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }}
+        .artifact-header {{ font-size: 0.8rem; font-weight: 700; color: var(--accent); margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }}
         
-        .payload-box {{ margin-bottom: 15px; border-left: 3px solid var(--accent); background: #030305; padding: 15px; border-radius: 0 8px 8px 0; }}
+        .payload-box {{ margin-bottom: 15px; border-left: 3px solid var(--accent); background: #2B1B3D; padding: 15px; border-radius: 0 8px 8px 0; }}
         .payload-label {{ font-size: 0.7rem; font-weight: 800; color: var(--accent); margin-bottom: 8px; }}
-        pre {{ font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; white-space: pre-wrap; word-break: break-all; color: #cbd5e1; }}
+        pre {{ font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; white-space: pre-wrap; word-break: break-all; color: #FDF9FF; }}
         
         .footer {{ text-align: center; margin-top: 100px; color: var(--text-dim); font-size: 0.9rem; }}
     </style>
@@ -208,7 +208,7 @@ class EliteHTMLReporter:
 <body>
     <div class="header">
         <div>
-            <h1>BreakPoint <span style="font-weight:400; color:var(--text-dim);">Elite Audit</span></h1>
+            <h1>BreakPoint <span style="font-weight:400; color:var(--text-dim);">Audit Report</span></h1>
             <p style="color:var(--text-dim); margin-top:10px; font-weight:600;">TARGET: <span style="color:var(--accent);">{self.target_url}</span></p>
         </div>
         <div style="text-align:right;">
@@ -240,8 +240,8 @@ class EliteHTMLReporter:
     {findings_html if findings_html else '<div class="card" style="padding:50px; text-align:center;"><p style="font-size:1.2rem; color:var(--text-dim);">Excellent posture. No vulnerabilities detected in this vector.</p></div>'}
 
     <div class="footer">
-        <p>BreakPoint Adversarial Logic Engine v4.0.0-Elite</p>
-        <p style="margin-top:5px; opacity:0.5;">Proprietary & Confidential Audit Data</p>
+        <p>BreakPoint Adversarial Logic Engine v4.0.0-PRO</p>
+        <p style="margin-top:5px; opacity:0.5;">Confidential Audit Data</p>
     </div>
 </body>
 </html>

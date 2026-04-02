@@ -4,9 +4,9 @@ import os
 from typing import List, Dict, Any, Optional
 from ..models import CheckResult, VulnerabilityStatus
 
-class StructuredReportGenerator:
+class ProfessionalReportGenerator:
     """
-    Advanced Reporting Engine for BREAKPOINT.
+    Professional Reporting Engine for BREAKPOINT.
     Implements a 14-section structured reporting architecture.
     """
     def __init__(self, engine_instance):
@@ -51,7 +51,7 @@ class StructuredReportGenerator:
             "timestamp": self.timestamp,
             "scan_mode": "Differential" if getattr(self.engine, 'diff_mode', False) else "Full Audit",
             "environment": getattr(self.engine, 'env', 'Unknown'),
-            "version": "4.0.0-Elite",
+            "version": "4.0.0-PRO",
             "total_modules_executed": len(set(r.type for r in self.results)),
             "total_requests_sent": getattr(self.engine.throttler, 'total_requests', 0) if hasattr(self.engine, 'throttler') else len(self.results) * 5
         }
@@ -191,53 +191,53 @@ class StructuredReportGenerator:
 
         style = """
         :root {
-            --bg: #030305;
-            --card-bg: #0a0a0f;
-            --accent: #a855f7;
-            --text: #e2e8f0;
-            --text-dim: #94a3b8;
-            --border: #1e1e2e;
-            --critical: #ef4444;
-            --high: #f97316;
-            --medium: #f59e0b;
-            --low: #3b82f6;
-            --success: #22c55e;
+            --bg: #ffffff;
+            --card-bg: #f8fafc;
+            --accent: #2563eb;
+            --text: #0f172a;
+            --text-dim: #64748b;
+            --border: #e2e8f0;
+            --critical: #dc2626;
+            --high: #ea580c;
+            --medium: #d97706;
+            --low: #2563eb; 
+            --success: #16a34a;
         }
         * { box-sizing: border-box; }
         body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, -apple-system, sans-serif; line-height: 1.6; margin: 0; padding: 40px 10%; }
         .hero { margin-bottom: 60px; border-bottom: 1px solid var(--border); padding-bottom: 40px; }
-        .hero h1 { font-size: 3rem; margin: 0; font-weight: 800; letter-spacing: -2px; }
-        .section-title { margin-top: 80px; margin-bottom: 30px; font-size: 1.8rem; border-left: 4px solid var(--accent); padding-left: 20px; text-transform: uppercase; letter-spacing: 2px; font-weight: 800; }
-        .section-num { color: var(--accent); opacity: 0.5; margin-right: 15px; font-weight: 200; }
-        .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 25px; margin-bottom: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+        .hero h1 { font-size: 3rem; margin: 0; font-weight: 800; letter-spacing: -2px; color: var(--text); }
+        .section-title { margin-top: 80px; margin-bottom: 30px; font-size: 1.8rem; border-left: 4px solid var(--accent); padding-left: 20px; text-transform: uppercase; letter-spacing: 2px; font-weight: 800; color: var(--text); }
+        .section-num { color: var(--accent); opacity: 0.7; margin-right: 15px; font-weight: 200; }
+        .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 25px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
-        .stat-item { text-align: center; padding: 20px; background: rgba(255,255,255,0.02); border-radius: 8px; }
+        .stat-item { text-align: center; padding: 20px; background: #ffffff; border-radius: 6px; border: 1px solid var(--border); box-shadow: 0 1px 2px rgba(0,0,0,0.02); }
         .stat-val { font-size: 2.5rem; font-weight: 800; color: var(--accent); }
-        .stat-label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
-        pre { background: #000; padding: 20px; border-radius: 8px; overflow-x: auto; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; border: 1px solid #111; color: #10b981; }
-        .badge { padding: 4px 12px; border-radius: 6px; font-size: 0.7rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.5px; }
-        .badge-critical { background: rgba(239, 68, 68, 0.1); color: var(--critical); border: 1px solid rgba(239, 68, 68, 0.2); }
-        .badge-high { background: rgba(249, 115, 22, 0.1); color: var(--high); border: 1px solid rgba(249, 115, 22, 0.2); }
-        .badge-medium { background: rgba(245, 158, 11, 0.1); color: var(--medium); border: 1px solid rgba(245, 158, 11, 0.2); }
-        .badge-low { background: rgba(59, 130, 246, 0.1); color: var(--low); border: 1px solid rgba(59, 130, 246, 0.2); }
+        .stat-label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; font-weight: 700; }
+        pre { background: #f1f5f9; padding: 20px; border-radius: 6px; overflow-x: auto; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; border: 1px solid var(--border); color: var(--text); }
+        .badge { padding: 4px 12px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+        .badge-critical { background: #fee2e2; color: var(--critical); border: 1px solid #fecaca; }
+        .badge-high { background: #ffedd5; color: var(--high); border: 1px solid #fed7aa; }
+        .badge-medium { background: #fef3c7; color: var(--medium); border: 1px solid #fde68a; }
+        .badge-low { background: #dbeafe; color: var(--low); border: 1px solid #bfdbfe; }
         """
 
         html = f"""
-        <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>BREAKPOINT - Structured Audit Report</title><style>{style}</style></head>
+        <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>BREAKPOINT - Professional Audit Report</title><style>{style}</style></head>
         <body>
             <div class="hero">
                 <h1>BREAKPOINT <span style="font-weight:200; color:var(--accent);">v4.0.0</span></h1>
-                <p style="color:var(--text-dim); font-weight:600; letter-spacing:1px; text-transform:uppercase;">Enterprise Security Exposure Analysis</p>
+                <p style="color:var(--text-dim); font-weight:600; letter-spacing:1px; text-transform:uppercase;">Vulnerability Exposure Analysis</p>
             </div>
 
             {get_section_header(1, "OPERATION METADATA")}
             <div class="card">
                 <div class="stats-grid">
-                    <div class="stat-item"><div class="stat-label">SCAN ID</div><div class="stat-val" style="font-size:1.1rem; color:#fff;">{sections[1]['scan_id']}</div></div>
-                    <div class="stat-item"><div class="stat-label">TARGET</div><div class="stat-val" style="font-size:1.1rem; color:#fff;">{sections[1]['target_system']}</div></div>
-                    <div class="stat-item"><div class="stat-label">SCAN MODE</div><div class="stat-val" style="font-size:1.1rem; color:#fff;">{sections[1]['scan_mode']}</div></div>
-                    <div class="stat-item"><div class="stat-label">ENV</div><div class="stat-val" style="font-size:1.1rem; color:#fff;">{sections[1]['environment']}</div></div>
-                    <div class="stat-item"><div class="stat-label">TOTAL REQUESTS</div><div class="stat-val" style="font-size:1.1rem; color:#fff;">{sections[1]['total_requests_sent']}</div></div>
+                    <div class="stat-item"><div class="stat-label">SCAN ID</div><div class="stat-val" style="font-size:1.1rem; color:var(--text);">{sections[1]['scan_id']}</div></div>
+                    <div class="stat-item"><div class="stat-label">TARGET</div><div class="stat-val" style="font-size:1.1rem; color:var(--text);">{sections[1]['target_system']}</div></div>
+                    <div class="stat-item"><div class="stat-label">SCAN MODE</div><div class="stat-val" style="font-size:1.1rem; color:var(--text);">{sections[1]['scan_mode']}</div></div>
+                    <div class="stat-item"><div class="stat-label">ENV</div><div class="stat-val" style="font-size:1.1rem; color:var(--text);">{sections[1]['environment']}</div></div>
+                    <div class="stat-item"><div class="stat-label">TOTAL REQUESTS</div><div class="stat-val" style="font-size:1.1rem; color:var(--text);">{sections[1]['total_requests_sent']}</div></div>
                 </div>
             </div>
 
@@ -253,11 +253,11 @@ class StructuredReportGenerator:
 
             {get_section_header(3, "ATTACK SURFACE CARTOGRAPHY")}
             <div class="card">
-                <h3 style="color:var(--accent); font-size:1rem; margin-bottom:15px;">Route Enumeration</h3>
-                <div style="background:rgba(0,0,0,0.2); padding:15px; border-radius:8px;">
+                <h3 style="color:var(--text); font-size:1rem; margin-bottom:15px;">Route Enumeration</h3>
+                <div style="background:#f1f5f9; padding:15px; border-radius:6px; border:1px solid var(--border);">
                     {f'<ul style="margin:0; padding-left:20px;">' + "".join(f"<li>{r}</li>" for r in sections[3]['route_enumeration'][:15]) + '</ul>' if sections[3]['route_enumeration'] else '<p>No endpoints discovered.</p>'}
                 </div>
-                <h3 style="color:var(--accent); font-size:1rem; margin-top:25px; margin-bottom:15px;">Technology Profile</h3>
+                <h3 style="color:var(--text); font-size:1rem; margin-top:25px; margin-bottom:15px;">Technology Profile</h3>
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
                     <p><b>Languages:</b> {", ".join(sections[3]['technology_profile']['languages']) or "N/A"}</p>
                     <p><b>Frameworks:</b> {", ".join(sections[3]['technology_profile']['frameworks']) or "N/A"}</p>
@@ -270,20 +270,20 @@ class StructuredReportGenerator:
             <div class="card">
                 {f'<p>Detected {len(sections[4])} potential exploit chains.</p>' if sections[4] else '<p style="color:var(--text-dim);">No multi-stage exploit chains identified.</p>'}
                 {"".join(f'''<div style="margin-bottom:20px; border-left:2px solid var(--accent); padding-left:15px;">
-                    <div style="font-weight:bold; color:#fff;">{" → ".join(c["chain"])}</div>
+                    <div style="font-weight:bold; color:var(--text);">{" → ".join(c["chain"])}</div>
                     <p style="font-size:0.9rem; color:var(--text-dim); margin:5px 0;">{c["description"]}</p>
                     <small style="color:var(--accent);">SEVERITY SCORE: {c["severity_score"]}</small>
                 </div>''' for c in sections[4])}
             </div>
 
             {get_section_header(5, "CONFIRMED EXPLOITATION RECORDS")}
-            {"".join(f'''<div class="card" style="border-right: 4px solid var({r['severity'].lower()});">
+            {"".join(f'''<div class="card" style="border-left: 4px solid var(--{r['severity'].lower()}); border-right: none;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span style="font-weight:800; font-size:1.1rem; color:#fff;">{r['category'].upper()}</span>
+                    <span style="font-weight:800; font-size:1.1rem; color:var(--text);">{r['category'].upper()}</span>
                     <span class="badge badge-{r['severity'].lower()}">{r['severity']}</span>
                 </div>
                 <div style="margin:15px 0; color:var(--text-dim); font-size:0.95rem;">{r['description']}</div>
-                <div style="display:flex; gap:20px; font-size:0.75rem; color:var(--accent); font-weight:bold;">
+                <div style="display:flex; gap:20px; font-size:0.75rem; color:var(--text-dim); font-weight:600;">
                     <div>LOCATION: {r['location']['endpoint']}</div>
                     <div>CONFIDENCE: {r['confidence']}</div>
                     <div>ID: {r['id']}</div>
@@ -293,7 +293,7 @@ class StructuredReportGenerator:
             {get_section_header(6, "INJECTION ATTACK INTELLIGENCE")}
             <div class="card">
                 <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:15px;">
-                    {"".join(f'<div style="padding:15px; background:rgba(255,255,255,0.02); border-radius:8px;"><b>{k.replace("_", " ").upper()}</b><br><span style="font-size:1.5rem; color:var(--accent);">{len(v)}</span> findings</div>' for k,v in sections[6].items() if v) or "No injection findings."}
+                    {"".join(f'<div style="padding:15px; background:#ffffff; border:1px solid var(--border); border-radius:6px;"><b>{k.replace("_", " ").upper()}</b><br><span style="font-size:1.5rem; color:var(--accent);">{len(v)}</span> findings</div>' for k,v in sections[6].items() if v) or "No injection findings."}
                 </div>
             </div>
 
@@ -301,11 +301,11 @@ class StructuredReportGenerator:
             <div class="card">
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
                     <div>
-                        <h4 style="margin-top:0; color:var(--accent);">Authentication Failures</h4>
+                        <h4 style="margin-top:0; color:var(--text);">Authentication Failures</h4>
                         <div style="font-size:2rem; font-weight:800;">{len(sections[7]['authentication_failures'])}</div>
                     </div>
                     <div>
-                        <h4 style="margin-top:0; color:var(--accent);">Authorization Failures</h4>
+                        <h4 style="margin-top:0; color:var(--text);">Authorization Failures</h4>
                         <div style="font-size:2rem; font-weight:800;">{len(sections[7]['authorization_failures'])}</div>
                     </div>
                 </div>
@@ -324,7 +324,7 @@ class StructuredReportGenerator:
             <div class="card">
                 {f'<p>Displaying first {min(len(sections[11]), 5)} evidence artifacts.</p>' if sections[11] else '<p>No evidence artifacts collected.</p>'}
                 {"".join(f'''<div style="margin-top:20px; border-top:1px solid var(--border); padding-top:15px;">
-                    <div style="color:var(--accent); font-weight:bold; margin-bottom:10px;">Finding ID: {e['finding_id']} | Type: {e['type']}</div>
+                    <div style="color:var(--text); font-weight:600; margin-bottom:10px;">Finding ID: {e['finding_id']} | Type: {e['type']}</div>
                     <div style="margin-bottom:5px;"><b>Payload:</b></div>
                     <pre>{e['payload']}</pre>
                 </div>''' for e in sections[11][:5])}
