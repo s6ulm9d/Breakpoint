@@ -6,10 +6,15 @@ import json
 import socket
 import datetime
 from pathlib import Path
+from urllib.parse import urlparse
+
+UNAUTHORIZED_TLDS = {".gov", ".mil", ".edu", ".int"}
+CRITICAL_KEYWORDS = {"bank", "medical", "hospital", "clinic", "health", "police", "gov", "military"}
+
 
 EULA_TEXT = """
 ================================================================================
-                        BREAKPOINT ENTERPRISE EULA
+                        BREAKPOINT PROFESSIONAL EULA
 ================================================================================
 
 1. AUTHORIZED USE ONLY
@@ -125,4 +130,31 @@ def prompt_eula():
         return True
     else:
         print("\n[!] EULA Declined. Exiting.")
+        return False
+
+def is_target_authorized(url: str) -> bool:
+    """
+    Checks the target URL against known unauthorized domains and critical infrastructure keywords.
+    Returns True if the target appears authorized or safe to test, False if it matches a blocklist.
+    """
+    try:
+        parsed = urlparse(url)
+        domain = parsed.netloc.lower()
+        if ":" in domain:
+            domain = domain.split(":")[0]
+            
+        # Check TLDs
+        if any(domain.endswith(tld) for tld in UNAUTHORIZED_TLDS):
+            return False
+            
+        # Check Critical Keywords
+        domain_parts = domain.split('.')
+        for part in domain_parts:
+            if part in CRITICAL_KEYWORDS:
+                # We block if it exactly matches a critical keyword e.g. bank.com or nhs.health.uk
+                return False
+                
+        return True
+    except Exception:
+        # Fail safe
         return False

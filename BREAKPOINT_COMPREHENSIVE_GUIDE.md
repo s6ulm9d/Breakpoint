@@ -4,7 +4,7 @@
 ---
 
 ## 1. Executive Summary
-**Breakpoint** is not just a scanner; it is a **Weaponized Resilience Engine**. Built for high-concurrency enterprise targeting, it moves beyond legacy pattern matching to provide deterministic, actionable, and reproducible security audits. By combining **Code Property Graphs (CPG)** with **AI-Driven Adversarial Loops**, Breakpoint identifies vulnerabilities that traditional tools miss.
+**Breakpoint** is not just a scanner; it is a **Weaponized Resilience Engine**. Built for high-concurrency professional targeting, it moves beyond legacy pattern matching to provide deterministic, actionable, and reproducible security audits. By combining **Code Property Graphs (CPG)** with **AI-Driven Adversarial Loops**, Breakpoint identifies vulnerabilities that traditional tools miss.
 
 ---
 
@@ -68,10 +68,10 @@ Every finding is converted into a reproducible artifact:
 ### Standard Deployment
 ```bash
 # Non-destructive audit
-breakpoint https://target.enterprise --env production
+breakpoint https://target.professional --env production
 
 # Aggressive validation (Destructive + High Concurrency)
-breakpoint https://target.enterprise --aggressive --concurrency 50
+breakpoint https://target.professional --aggressive --concurrency 50
 ```
 
 ### Essential Flags
