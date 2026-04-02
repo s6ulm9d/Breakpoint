@@ -20,7 +20,7 @@ from .stac.generators import PytestGenerator, PlaywrightGenerator
 from .sandbox import Sandbox
 from .core.logic import ConfidenceEngine, RiskScoringEngine, EvidenceCollector
 
-# IMPACT MAPPING: Translate technical findings to enterprise-grade metadata
+# IMPACT MAPPING: Translate technical findings to vulnerability metadata
 ATTACK_METADATA = {
     "sql_injection": {"severity": "CRITICAL", "cwe": "CWE-89", "owasp": "A03:2021", "remediation": "Use parameterized queries or ORMs. Sanitize all user inputs."},
     "sqli_blind_time": {"severity": "CRITICAL", "cwe": "CWE-89", "owasp": "A03:2021", "remediation": "Use parameterized queries. Avoid string concatenation in database queries."},
@@ -104,6 +104,7 @@ ATTACK_METADATA = {
     "malformed_json_check": {"severity": "LOW", "cwe": "CWE-20", "owasp": "A03:2021", "remediation": "Add JSON schema validation before processing."},
     "redos_validation_attack": {"severity": "MEDIUM", "cwe": "CWE-1333", "owasp": "A04:2021", "remediation": "Audit regexes for catastrophic backtracking; use timeout limits."},
     "otp_reuse_check": {"severity": "HIGH", "cwe": "CWE-287", "owasp": "A07:2021", "remediation": "Invalidate OTP after first use; enforce 30–60s expiry."},
+    "missing_rate_limit": {"severity": "HIGH", "cwe": "CWE-779", "owasp": "A04:2021", "remediation": "Implement robust rate limiting using HTTP 429 Too Many Requests limits based on IP and user blocks."}
 }
 
 ATTACK_IMPACTS = {
@@ -145,7 +146,8 @@ ATTACK_IMPACTS = {
     "ssi_injection": "Server-Side Includes (SSI) Injection allows attackers to execute arbitrary code or access sensitive files on the server.",
     "deserialization_rce": "Insecure deserialization allows Remote Code Execution (RCE) and full server compromise.",
     "file_upload_shell": "Unrestricted file upload allows attackers to upload executable scripts, leading to Remote Code Execution (RCE).",
-    "struts2_rce": "Apache Struts 2 vulnerability allows Remote Code Execution via manipulating OGNL expressions."
+    "struts2_rce": "Apache Struts 2 vulnerability allows Remote Code Execution via manipulating OGNL expressions.",
+    "missing_rate_limit": "Lack of rate limiting allows attackers to perform indiscriminate brute-force attacks, credential stuffing, and DoS attacks at scale."
 }
 
 import threading as _threading
@@ -229,9 +231,9 @@ class Engine:
         self.context = TargetContext(base_url=self.base_url)
         self.context.oob_provider = self.oob_server  # Inject OOB into context
 
-        # 5. Elite Reporting (Consolidated)
-        from .reporting import EliteHTMLReporter
-        self.reporter = EliteHTMLReporter(target_url=self.base_url)
+        # 5. Professional Reporting (Consolidated)
+        from .reporting import ProfessionalHTMLReporter
+        self.reporter = ProfessionalHTMLReporter(target_url=self.base_url)
 
         # 6. Replay & Session Management
         from .replay import ReplayManager
@@ -488,7 +490,7 @@ class Engine:
                                     snippet = result.vulnerable_code if hasattr(result, 'vulnerable_code') and result.vulnerable_code else "Source unavailable"
                                     
                                     # VISIBILITY: Show the user what snippet we selected for AI
-                                    print(f"    {Fore.CYAN}[AI_CODE_SELECTION] Passing relevant context to agent:{Style.RESET_ALL}")
+                                    print(f"    {Fore.RED}[AI_CODE_SELECTION] Passing relevant context to agent:{Style.RESET_ALL}")
                                     snippet_preview = snippet[:200] + "..." if len(snippet) > 200 else snippet
                                     print(f"    {Fore.WHITE}--- SNIPPET START ---\n    {snippet_preview.replace('\n', '\n    ')}\n    --- SNIPPET END ---{Style.RESET_ALL}")
 
@@ -698,9 +700,9 @@ class Engine:
         attacks = session_data.get("attacks", [])
         recorded_results = session_data.get("results", [])
         
-        print(f"\n{Fore.CYAN}[REPLAY MODE] Replaying previous attack session{Style.RESET_ALL}")
-        print(f"{Fore.CYAN}[REPLAY MODE] Target loaded from session: {target}{Style.RESET_ALL}")
-        print(f"{Fore.CYAN}[REPLAY MODE] Executing {len(attacks)} recorded attacks...{Style.RESET_ALL}")
+        print(f"\n{Fore.RED}[REPLAY MODE] Replaying previous attack session{Style.RESET_ALL}")
+        print(f"{Fore.RED}[REPLAY MODE] Target loaded from session: {target}{Style.RESET_ALL}")
+        print(f"{Fore.RED}[REPLAY MODE] Executing {len(attacks)} recorded attacks...{Style.RESET_ALL}")
         
         from .http_client import HttpClient
         # Use our own instance's settings if available
@@ -854,6 +856,8 @@ class Engine:
                 res_dict = omni.run_password_length_dos(client, s)
             elif check_type in ["email_injection", "email_header_injection"]:
                 res_dict = omni.run_email_injection(client, s)
+            elif check_type in ["missing_rate_limit", "no_rate_limit"]:
+                res_dict = omni.run_missing_rate_limit(client, s)
             elif check_type in ["replay_simple", "auth_replay_check"]:
                 res_dict = omni.run_replay_check(client, s)
             elif check_type in ["debug_exposure", "debug_mode_exposure", "stack_trace_disclosure", "source_code_disclosure", "directory_listing_exposure", "webpack_sourcemap_leak", "node_inspect_vulnerability", "flask_debug_leak", "react_native_debugger_exposure"]: 
@@ -963,10 +967,10 @@ class Engine:
                 status = "INCONCLUSIVE"
                 res_dict["details"] = "Possible signal detected but confidence is ~0% (filtered by Smart Engine)."
             
-            # Fetch Enterprise Metadata
+            # Fetch Vulnerability Metadata
             meta = ATTACK_METADATA.get(check_type, {"severity": "INFO", "cwe": "N/A", "owasp": "N/A", "remediation": "N/A"})
             
-            # Create Production-Grade Result
+            # Create High-Fidelity Result
             # XXE Severity Override
             severity = meta["severity"]
             if check_type in ["xxe", "xxe_external_entity"]:
@@ -1007,7 +1011,7 @@ class Engine:
                 is_verified=(status == "CONFIRMED")
             )
             
-            # --- ELITE SCORING PASS ---
+            # --- ADVANCED SCORING PASS ---
             if result.status in ["VULNERABLE", "CONFIRMED", "SUSPECT"]:
                 # 1. Calc Confidence
                 result.confidence = ConfidenceEngine.calculate(
@@ -1226,7 +1230,7 @@ class Engine:
                     print(f"{Fore.WHITE}{result.vulnerable_code}{Style.RESET_ALL}")
                 
                 # Evidence
-                print(f"\n {Fore.RED}{'Evidence:':<20}{Style.RESET_ALL} See Consolidated Elite Audit Report for precise exploit payloads.")
+                print(f"\n {Fore.RED}{'Evidence:':<20}{Style.RESET_ALL} See Consolidated Professional Audit Report for precise exploit payloads.")
                 
                 print(f"{Fore.RED}" + "="*60 + f"{Style.RESET_ALL}\n")
 

@@ -127,6 +127,19 @@ class PythonAdapter(BaseAdapter):
         TaintVisitor(scope="").visit(tree)
         return paths
 
+def _parse_file_parallel_helper(file_path: str, lang: str) -> tuple:
+    """Module-level helper for multiprocessing pool to avoid pickling the StaticAnalyzer instance."""
+    adapter = None
+    if lang == "python":
+        adapter = PythonAdapter()
+        
+    if not adapter: return (file_path, None)
+    try:
+        with open(file_path, "r", errors="ignore") as f: code = f.read()
+        tree = adapter.parse_source(code)
+        return (file_path, tree)
+    except: return (file_path, None)
+
 class StaticAnalyzer:
     """Orchestrates multi-pass global static analysis across the entire project."""
     def __init__(self, code_path: str):
@@ -185,8 +198,8 @@ class StaticAnalyzer:
         
         # Parallel file parsing to build ASTs
         with Pool(processes=cpu_count()) as pool:
-            # Each process needs its own adapter instance
-            results = pool.starmap(self._parse_file_parallel, [(f, self._detect_language(f)) for f in source_files])
+            # We must use a top-level function here to avoid pickling 'self'
+            results = pool.starmap(_parse_file_parallel_helper, [(f, self._detect_language(f)) for f in source_files])
             
         for file_path, tree in results:
             if tree:
@@ -219,17 +232,6 @@ class StaticAnalyzer:
 
     def _detect_language(self, filename: str) -> str:
         return "python" if filename.endswith(".py") else "unknown"
-
-    def _parse_file_parallel(self, file_path: str, lang: str) -> tuple:
-        """Helper for multiprocessing pool."""
-        adapter = self.adapters.get(lang)
-        if not adapter: return (file_path, None)
-        try:
-            # Incremental Scan: Check if file changed (mtime-based baseline could be here)
-            with open(file_path, "r", errors="ignore") as f: code = f.read()
-            tree = adapter.parse_source(code)
-            return (file_path, tree)
-        except: return (file_path, None)
 
     def _collect_symbols_from_tree(self, tree: ast.AST, file_path: str):
         class SymbolVisitor(ast.NodeVisitor):
